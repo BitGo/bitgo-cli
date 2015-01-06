@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+var bgcl = require('../src');
+
+var cl = new bgcl.BGCL();
+cl.run();
