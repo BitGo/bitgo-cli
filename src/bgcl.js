@@ -647,13 +647,13 @@ BGCL.prototype.handleTxList = function() {
         target = self.session.labelForAddress(tx.toAddress) || tx.toAddress;
       }
       if (!target) {
-        prep = '';
+        prep = '       ';
       } else {
         prep = inout + ' ' + prep;
       }
       var row = pending + date + '  '  +
         _.string.lpad(amount, 10) + '  ' + prep + ' ' +
-        _.string.rpad(target, 38);
+        _.string.rpad(target, 38) + tx.transactionId;
 
       if (tx.comment) {
         row = row + '\n' + _.string.lpad('', 32) + '# ' + _.string.truncate(tx.comment, 42);
