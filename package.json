@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "BitGo command-line interface",
   "main": "src/index.js",
-  "bin" : {
+  "bin": {
     "bitgo": "bin/bitgo"
   },
   "scripts": {
@@ -25,10 +25,12 @@
   "homepage": "https://github.com/BitGo/bitgo-cli",
   "dependencies": {
     "argparse": "^0.1.16",
-    "bitgo": "0.9.3",
+    "bitgo": "0.9.11",
     "lodash": "^2.4.1",
     "q": "^1.1.2",
     "read": "^1.0.5",
+    "secrets.js": "0.1.8",
+    "sjcl": "1.0.1",
     "underscore.string": "^2.4.0"
   },
   "preferGlobal": true
