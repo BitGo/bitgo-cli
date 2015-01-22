@@ -7,7 +7,7 @@ This package provides a NodeJS program (**bitgo**), which is a (mostly) complete
 # Installation
 
 **NodeJS must be installed as a prerequisite.**
-```sh
+```
 $ npm install -g bitgo-cli
 ```
 
@@ -15,7 +15,7 @@ $ npm install -g bitgo-cli
 
 Running **bitgo -h** will produce usage information.
 
-```sh
+```
 $ bitgo -h
 usage: bitgo [-h] [-v] [-t]
              
@@ -60,7 +60,7 @@ subcommands:
 
 By default, **bitgo** will use the production Bitcoin network, and will authenticate
 with **www.bitgo.com**. In order to use BitGo's testnet environment at **test.bitgo.com**, either use the **-t** flag on the command line, or set the following environment variable:
-```sh
+```
 $ export BITGO_NETWORK=testnet
 ```
 The testnet environment is a completely separate namespace from the BitGo production database. You will need to set up separate accounts on [test.bitgo.com](https://test.bitgo.com/) for testing purposes.  Note that in the test environment, while standard Authy codes still work for 2FA, it is also possible to use a code of 0000000 (7 zeroes).
@@ -76,7 +76,7 @@ Many of the commands have interactive flows, prompting for needed information as
 
 ## login
 Authenticate with BitGo, establishing a session.
-```sh
+```
 $ bitgo login
 Email: user@domain.com
 Password: ********
@@ -87,25 +87,25 @@ Password: ********
 
 ## logout
 Logout of the current session. Sessions expire in 60 minutes by default.
-```sh
+```
 $ bitgo logout
 ```
 
 ## token
 Show the current auth token:
-```sh
+```
 $ bitgo token
 bab7b73dec9501b8b210ec8d68e1ac26a88b7b8c3c4f6811935d793d627c7d54
 ```
 Set the current auth token; this is an alternate way of changing sessions, or can be used to install a long-lived API token provided by BitGo:
-```sh
+```
 $ bitgo -t token 24b7b73dec9501b8b210ec8d68e1ac26a88b7b8c3c4f6811935d793d627c7d54
 *** Logged in as user@domain.com
 ```
 
 ## status
 Show the current session status.
-```sh
+```
 $ bitgo status
 Network: prod
 Session file: ~/.bitgo/prod.json
@@ -116,13 +116,13 @@ Current wallet: 3N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
 
 ## wallets
 List the wallets available to the user, with balances. Indicates which wallet is currently selected.
-```sh
+```
 $ bitgo wallets
 ```
 
 ## wallet
 Get or set the current wallet.
-```sh
+```
 $ bitgo wallet          # shows current wallet information
 $ bitgo wallet 3        # selects wallet 3 in the wallets list
 $ bitgo wallet <addr>   # selects wallet by address
@@ -131,47 +131,47 @@ $ bitgo wallet <name>   # selects wallet by name
 
 ## labels
 Show address labels associated with the current wallet, or all wallets.
-```sh
+```
 $ bitgo labels        # shows address labels on current wallet
 $ bitgo labels -a     # shows address labels on all wallets
 ```
 
 ## setlabel
 Label a Bitcoin address in the context of the current wallet.
-```sh
+```
 $ bitgo setlabel <address> "My label here"
 ```
 
 ## removelabel
 Remove label from a Bitcoin address in the context of the current wallet.
-```sh
+```
 $ bitgo removelabel <address>
 ```
 
 ## addresses
 Show receive addresses for the current wallet, and optionally change addresses. Shows
-```sh
+```
 $ bitgo addresses           # show receive addresses only
 $ bitgo addresses -c        # include change addresses
 ```
 
 ## newaddress
 Generate a new receive address for the current wallet
-```sh
+```
 $ bitgo newaddress
 *** Created new receive address: 3NCsnZpdioF5ZCmnuSyzeb8nH4Rp4XRzdu1
 ```
 
 ## unspents
 Show a list of unspents on the current wallet, optionally filtering by minimum confirms.
-```sh
+```
 $ bitgo unspents            # show all unspents
 $ bitgo unspents -c 6       # show unspents with at least 6 confirms
 ```
 
 ## tx
 List transactions on the current wallet.
-```sh
+```
 $ bitgo tx                  # show last 25 transactions
 $ bitgo tx -n 100           # show last 100 transactions
 ```
@@ -180,21 +180,21 @@ $ bitgo tx -n 100           # show last 100 transactions
 In order to transact, a BitGo session must first be unlocked, by providing an additional
 2-step verification (Authy) code. The **send** command handles prompting for this automatically, but the
 wallet can also be unlocked explicitly.
-```sh
+```
 $ bitgo unlock 1234567     # unlock the session with current Authy code
 *** Unlocked session
 ```
 
 ## lock
 Explicitly lock the session, preventing further transactions from taking place.
-```sh
+```
 $ bitgo lock
 *** Locked session
 ```
 
 ## send
 Send a transaction. This command provides a guided flow, but the needed info may also be provided on the command line.
-```sh
+```
 $ bitgo -t send       # note, this is Testnet (due to the -t)
 Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
 Send Transaction:
@@ -212,7 +212,7 @@ Type 'go' to confirm: go
 
 ## newkey
 Create a new BIP32 root key. This is a client-side only operation. It does not require the user to be authenticated with BitGo, and does not contact the BitGo server.  Additional entropy may be provided on the command line.
-```sh
+```
 $bitgo newkey
 *** Created new BIP32 keychain
 
@@ -226,7 +226,7 @@ Create a new BitGo HD 2-of-3 Multi-sig wallet. This is a guided flow with instru
 
 **Please be aware that creating a wallet in this manner does not produce a recovery KeyCard. You are fully responsible for backing up your keys. If you lose access to your keys and passcode, BitGo cannot help you recover your funds.**
 
-```sh
+```
 $ bitgo -t newwallet
 Current User: ben+0@bitgo.com
 Create New Wallet undefined
@@ -250,7 +250,7 @@ Enter BitGo password: ********************
 
 ## shell
 Launch the BitGo shell, which simply allows you to run commands without prefixing them with **bitgo**. No other shell functionality is provided. Use Ctrl-C or Ctrl-D to exit.
-```sh
+```
 bitgo -t shell
 [bitgo @ My Cool Wallet]฿ status
 ```
@@ -259,7 +259,7 @@ bitgo -t shell
 This is a client-side utility command which assists in generating a batch of BIP32 keys which are split
 using Shamir Secret Sharing, and have the shares encrypted with separate passwords (each
 known by a separate person, generally).  It provides a guided flow, as well as command-line args.
-```sh
+```
 $ splitkeys -h
 usage: bitgo splitkeys [-h] [-m M] [-n N] [-N NKEYS] [-p PREFIX] [-e ENTROPY]
 
@@ -277,7 +277,7 @@ Optional arguments:
 
 # recoverkeys
 A client-side utility for recovering keys generated by splitkeys.
-```sh
+```
 $bitgo recoverkeys -h
 usage: bitgo recoverkeys [-h] [-f FILE] [-k KEYS]
 
