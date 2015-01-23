@@ -2,4 +2,8 @@
 var bgcl = require('../src');
 
 var cl = new bgcl.BGCL();
-cl.run();
+try {
+  cl.run();
+} catch (err) {
+  console.log(err.message);
+}

@@ -212,7 +212,7 @@ var Session = function(bitgo) {
 };
 
 Session.prototype.load = function() {
-  var session = loadJSON(bitgo.network);
+  var session = loadJSON(this.bitgo.getEnv());
   if (session) {
     if (session.bitgo) {
       this.bitgo.fromJSON(session.bitgo);
@@ -235,7 +235,7 @@ Session.prototype.toJSON = function() {
 };
 
 Session.prototype.save = function() {
-  saveJSON(bitgo.network, this);
+  saveJSON(this.bitgo.getEnv(), this);
 };
 
 Session.prototype.labelForWallet = function(walletId) {
@@ -243,6 +243,7 @@ Session.prototype.labelForWallet = function(walletId) {
 };
 
 Session.prototype.labelForAddress = function(address) {
+  var wallet = this.wallet;
   var labels = this.labels && this.labels[address];
   if (!labels || labels.length === 0) {
     return undefined;
@@ -252,7 +253,7 @@ Session.prototype.labelForAddress = function(address) {
   }
   var foundLabel;
   labels.forEach(function(label) {
-    if (label.walletId === this.wallet.id()) {
+    if (label.walletId === wallet.id()) {
       foundLabel = label.label;
       return false; // break out
     }
@@ -271,11 +272,10 @@ BGCL.prototype.createArgumentParser = function() {
     description: 'BitGo Command-Line'
   });
   parser.addArgument(
-    ['-t', '--testnet'], {
-    action: 'storeConst',
-    constant: 1,
-    help: 'Use BitGo testnet environment (test.bitgo.com)'
-  });
+    ['-e', '--env'], {
+      help: 'BitGo environment to use: prod (default) or test. Can also be set with the BITGO_ENV environment variable.'
+    }
+  );
 
   var subparsers = parser.addSubparsers({
     title:'subcommands',
@@ -592,8 +592,8 @@ BGCL.prototype.handleLogout = function() {
 };
 
 BGCL.prototype.handleStatus = function() {
-  this.info('Network: ' + bitgo.network);
-  this.info('Session file: ' + filename(bitgo.network));
+  this.info('Environment: ' + this.bitgo.getEnv() + ' / ' + bitgo.getNetwork());
+  this.info('Session file: ' + filename(this.bitgo.getEnv()));
   this.userHeader();
   var self = this;
   return self.ensureAuthenticated()
@@ -853,18 +853,22 @@ BGCL.prototype.handleUnspents = function() {
   return this.session.wallet.unspents()
   .then(function(unspents) {
     var total = 0;
+    self.info('Conf' + '  ' +
+      _.string.lpad('Amount', 11) + '  ' +
+      _.string.rpad('Address', 35) + '  ' +
+      'Tx:vout');
     unspents.forEach(function(u) {
       if (u.confirmations >= minconf) {
         total += u.value;
         self.info(
           _.string.lpad(u.confirmations, 4) + '  ' +
           _.string.lpad(self.toBTC(u.value), 11) + '  ' +
-          u.address + '  ' +
+          _.string.rpad(u.address, 35) + '  ' +
           u.tx_hash + ':' + u.tx_output_n
         );
       }
     });
-    self.info('\n*** Total: ' + self.toBTC(total));
+    self.info('\newTotal: ' + self.toBTC(total));
   });
 };
 
@@ -1566,15 +1570,9 @@ BGCL.prototype.run = function() {
   this.parser = this.createArgumentParser();
   this.args = this.parser.parseArgs();
 
-  var network = 'prod';
-  if (process.env.BITGO_NETWORK === 'testnet' || this.args.testnet) {
-    network = 'testnet';
-  }
-
-  bitgo.setNetwork(network);
-  this.bitgo = new bitgo.BitGo({
-    useProduction: network === 'prod'
-  });
+  // Setup BitGo for chosen environment
+  var env = this.args.env || process.env.BITGO_ENV || 'prod';
+  this.bitgo = new bitgo.BitGo({ env: env });
 
   this.session = new Session(this.bitgo);
   this.session.load();

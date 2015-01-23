@@ -18,7 +18,7 @@ Running **bitgo -h** will produce usage information.
 ```
 $ bitgo -h
 usage: bitgo [-h] [-v] [-t]
-             
+
              {login,logout,token,status,wallets,wallet,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,freezewallet,send,spend,newkey,newwallet,splitkeys,recoverkeys,shell,help}
              ...
 
@@ -27,7 +27,8 @@ BitGo Command-Line
 Optional arguments:
   -h, --help            Show this help message and exit.
   -v, --version         Show program's version number and exit.
-  -t, --testnet         Use BitGo testnet environment (test.bitgo.com)
+  -e ENV, --env ENV     BitGo environment to use: prod (default) or test. Can
+                        also be set with the BITGO_ENV environment variable.
 
 subcommands:
   {login,logout,token,status,wallets,wallet,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,freezewallet,send,spend,newkey,newwallet,splitkeys,recoverkeys,shell,help}
@@ -59,14 +60,14 @@ subcommands:
 # Testnet
 
 By default, **bitgo** will use the production Bitcoin network, and will authenticate
-with **www.bitgo.com**. In order to use BitGo's testnet environment at **test.bitgo.com**, either use the **-t** flag on the command line, or set the following environment variable:
+with **www.bitgo.com**. In order to use BitGo's test environment at **test.bitgo.com**, either use **-e test** on the command line, or set the following environment variable:
 ```
-$ export BITGO_NETWORK=testnet
+$ export BITGO_ENV=test
 ```
 The testnet environment is a completely separate namespace from the BitGo production database. You will need to set up separate accounts on [test.bitgo.com](https://test.bitgo.com/) for testing purposes.  Note that in the test environment, while standard Authy codes still work for 2FA, it is also possible to use a code of 0000000 (7 zeroes).
 
 # Sessions
-The tool maintains one current login session per network (prod or testnet). The sessions are persisted in JSON format files in **~/.bitgo**.  Each session maintains the user's current auth token, and maintains a current wallet. All of the commands that operate on a wallet use this current wallet context. In order to operate on a different wallet, it must first be selected using the **wallet** command.
+The tool maintains one current login session per environment (prod or test). The sessions are persisted in JSON format files in **~/.bitgo**.  Each session maintains the user's current auth token, and maintains a current wallet. All of the commands that operate on a wallet use this current wallet context. In order to operate on a different wallet, it must first be selected using the **wallet** command.
 
 
 # Commands
@@ -195,7 +196,7 @@ $ bitgo lock
 ## send
 Send a transaction. This command provides a guided flow, but the needed info may also be provided on the command line.
 ```
-$ bitgo -t send       # note, this is Testnet (due to the -t)
+$ bitgo -e test send
 Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
 Send Transaction:
 
