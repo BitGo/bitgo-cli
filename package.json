@@ -1,6 +1,6 @@
 {
   "name": "bitgo-cli",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "BitGo command-line interface",
   "main": "src/index.js",
   "bin": {
@@ -24,14 +24,15 @@
   },
   "homepage": "https://github.com/BitGo/bitgo-cli",
   "dependencies": {
-    "argparse": "^0.1.16",
-    "bitgo": "0.9.12",
-    "lodash": "^2.4.1",
-    "q": "^1.1.2",
-    "read": "^1.0.5",
+    "argparse": "0.1.16",
+    "bitgo": "0.9.16",
+    "lodash": "2.4.1",
+    "moment": "2.9.0",
+    "q": "1.1.2",
+    "read": "1.0.5",
     "secrets.js": "0.1.8",
     "sjcl": "1.0.1",
-    "underscore.string": "^2.4.0"
+    "underscore.string": "2.4.0"
   },
   "preferGlobal": true
 }

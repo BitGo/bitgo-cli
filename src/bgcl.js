@@ -15,6 +15,11 @@ _.string = require('underscore.string');
 
 //Q.longStackSupport = true;
 
+var permsToRole = {};
+permsToRole['admin,spend,view'] = 'admin';
+permsToRole['spend,view'] = 'spender';
+permsToRole['view'] = 'viewer';
+
 function getUserHome() {
   return process.env.HOME || process.env.HOMEPATH || process.env.USERPROFILE;
 }
@@ -189,7 +194,7 @@ Shell.prototype.prompt = function() {
   if (bgcl.session && bgcl.session.wallet) {
     prompt = prompt + ' @ ' + bgcl.session.wallet.label();
   }
-  prompt = prompt + ']\u0e3f ';
+  prompt = prompt + ']\u0243 ';
   rl.setPrompt(prompt);
   rl.on('line', function(line) {
     line = line.trim();
@@ -298,7 +303,7 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Sign out of BitGo'
   });
 
-  // settoken
+  // token
   var token = subparsers.addParser('token', {
     addHelp: true,
     help: 'Get or set the current auth token'
@@ -391,13 +396,6 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Re-lock the session'
   });
 
-  // freezewallet
-  var freezeWallet = subparsers.addParser('freezewallet', {
-    addHelp: true,
-    help: 'Freeze (time-lock) the current wallet'
-  });
-  freezeWallet.addArgument(['-d', '--duration'], { help: 'the duration in seconds for which to freeze the wallet' });
-
   // send
   var send = subparsers.addParser('send', {
     aliases: ['spend'],
@@ -406,10 +404,59 @@ BGCL.prototype.createArgumentParser = function() {
   });
   send.addArgument(['-d', '--dest'], {help: 'the destination address'});
   send.addArgument(['-a', '--amount'], {help: 'the amount in BTC'});
-  send.addArgument(['-p', '--passcode'], {help: 'the wallet passcode'});
+  send.addArgument(['-p', '--password'], {help: 'the wallet password'});
   send.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
   send.addArgument(['-c', '--comment'], {help: 'optional comment'});
   send.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
+
+  // freezewallet
+  var freezeWallet = subparsers.addParser('freezewallet', {
+    addHelp: true,
+    help: 'Freeze (time-lock) the current wallet'
+  });
+  freezeWallet.addArgument(['-d', '--duration'], { help: 'the duration in seconds for which to freeze the wallet' });
+
+  // removewallet
+  var removeWallet = subparsers.addParser('removewallet', {
+    addHelp: true,
+    help: 'Remove a wallet from your account'
+  });
+  removeWallet.addArgument(['wallet'], { nargs: '?', help: 'the wallet ID of the wallet (default: current)'});
+
+  // sharewallet
+  var shareWallet = subparsers.addParser('sharewallet', {
+    addHelp: true,
+    help: 'Share the current wallet with another user'
+  });
+  shareWallet.addArgument(['-e', '--email'], {help: "email address of the recipient's BitGo account"});
+  shareWallet.addArgument(['-r', '--role'], {
+    help: 'role for the recipient on this wallet',
+    choices: ['admin', 'spender', 'viewer']
+  });
+  shareWallet.addArgument(['-p', '--password'], {help: "the wallet password"});
+  shareWallet.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
+  shareWallet.addArgument(['-c', '--comment'], {help: 'a message for the recipient'});
+  shareWallet.addArgument(['wallet'], { nargs: '?', help: 'the wallet id to share (default: current)'});
+
+  // shares
+  var shares = subparsers.addParser('shares', {
+    addHelp: true,
+    help: 'List outstanding wallet shares (incoming and outgoing)'
+  });
+
+  // acceptshare
+  var acceptShare = subparsers.addParser('acceptshare', {
+    addHelp: true,
+    help: 'Accept a wallet share invite'
+  });
+  acceptShare.addArgument(['share'], {help: 'the share id'});
+
+  // cancelshare
+  var cancelShare = subparsers.addParser('cancelshare', {
+    addHelp: true,
+    help: 'Cancel or decline a wallet share invite'
+  });
+  cancelShare.addArgument(['share'], {help: 'the share id'});
 
   // newkey
   var newKey = subparsers.addParser('newkey', {
@@ -494,7 +541,9 @@ BGCL.prototype.userHeader = function() {
 };
 
 BGCL.prototype.walletHeader = function() {
-  console.log('Current wallet: ' + this.session.wallet.id());
+  if (this.session.wallet) {
+    console.log('Current wallet: ' + this.session.wallet.id());
+  }
 };
 
 BGCL.prototype.formatWalletId = function(walletId) {
@@ -514,6 +563,27 @@ BGCL.prototype.fetchLabels = function() {
     self.session.labels = _.groupBy(labels, 'address');
     self.session.save();
     return labels;
+  });
+};
+
+BGCL.prototype.fetchUsers = function(userIds) {
+  var self = this;
+  var userFetches = userIds.map(function(id) {
+    return self.bitgo.getUser({ id: id });
+  });
+  return Q.all(userFetches);
+};
+
+BGCL.prototype.retryForUnlock = function(func) {
+  var self = this;
+  return func()
+  .catch(function(err) {
+    if (err.needsOTP) {
+      // unlock and try again
+      return self.handleUnlock().then(func);
+    } else {
+      throw err;
+    }
   });
 };
 
@@ -654,16 +724,17 @@ BGCL.prototype.handleWallets = function(setWallet) {
   };
 
   return self.bitgo.wallets().list()
-  .then(function(wallets) {
+  .then(function(result) {
+    var wallets = result.wallets;
     // Save wallets map to session
     var sessionWallets = {};
-    _.keys(wallets).forEach(function(id) {
-      sessionWallets[id] = _.pick(wallets[id].wallet, ['id', 'label']);
+    wallets.forEach(function(w) {
+      sessionWallets[w.id()] = _.pick(w.wallet, ['id', 'label']);
     });
     self.session.wallets = sessionWallets;
     self.session.save();
 
-    var walletIds = _.keys(wallets);
+    var walletIds = _.keys(sessionWallets);
     var fetches = walletIds.map(function(id) { return self.bitgo.wallets().get({ id: id }); });
     return Q.all(fetches);
   })
@@ -974,7 +1045,7 @@ BGCL.prototype.handleUnlock = function() {
       return self.bitgo.sendOTP();
     }
   })
-  .then(input.getVariable('otp', '2-step Verification Code: '))
+  .then(input.getVariable('otp', '2-step Verification Code: ', true))
   .then(function() {
     return self.bitgo.unlock({'otp': input.otp});
   })
@@ -989,6 +1060,166 @@ BGCL.prototype.handleLock = function() {
   return self.bitgo.lock()
   .then(function() {
     self.action('Locked session');
+  });
+};
+
+BGCL.prototype.handleShares = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var shares;
+
+  var printShareList = function(shares, users, incoming) {
+    var rows = shares.map(function(share) {
+      var marker = share.state === 'pendingapproval' ? '* ' : '  ';
+      var userId = incoming ? share.fromUser : share.toUser;
+      var user = users[userId];
+      var email = user ? user.email.email : '';
+      var role = permsToRole[share.permissions] || share.permissions;
+      var row = marker + _.string.rpad(share.id, 34) +
+        _.string.rpad(role, 9) +
+        _.string.rpad(email, 20) +
+        _.string.rpad(_.string.prune(share.walletLabel, 18), 20) +
+        _.string.prune(share.message, 40);
+      return row;
+    });
+
+    var userField = incoming ? 'From' : 'To';
+    var header = '  ' + _.string.rpad('ID', 34) +
+      _.string.rpad('Role', 9) +
+      _.string.rpad(userField, 20) +
+      _.string.rpad('Wallet', 20) + 'Message';
+    self.info(header);
+    self.info(rows.join('\n'));
+  };
+
+  return this.ensureAuthenticated()
+  .then(function() {
+    return self.bitgo.wallets().listShares();
+  })
+  .then(function(result) {
+    shares = result;
+    var allShares = shares.incoming.concat(shares.outgoing);
+    var userIds = _.pluck(shares.incoming, 'fromUser');
+    userIds = userIds.concat(_.pluck(shares.outgoing, 'toUser'));
+    userIds = _.uniq(userIds);
+    return self.fetchUsers(userIds);
+  })
+  .then(function(users) {
+    var indexedUsers = _.indexBy(users, 'id');
+
+    if (shares.incoming.length) {
+      self.info('\nIncoming Shares:');
+      printShareList(shares.incoming, indexedUsers, true);
+    }
+    if (shares.outgoing.length) {
+      self.info('\nOutgoing Shares:');
+      printShareList(shares.outgoing, indexedUsers, false);
+    }
+  });
+};
+
+BGCL.prototype.handleShareWallet = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var walletId = this.args.wallet || this.session.wallet.id();
+  var wallet;
+
+  return this.ensureAuthenticated()
+  .then(function() {
+    self.info('Share Wallet ' + walletId + ':\n');
+    return self.bitgo.wallets().get({ id: walletId });
+  })
+  .then(function(result) {
+    wallet = result;
+    if (!wallet.wallet.admin) {
+      throw new Error('can\'t share wallet: not an admin');
+    }
+  })
+  .then(input.getVariable('email', 'Email address of recipient: ', true))
+  .then(input.getVariable('role', 'Role ( [a]dmin | [s]pender | [v]iewer ): ', true))
+  .then(input.getVariable('comment', 'Optional comment for recipient: '))
+  .then(function() {
+    input.permissions = (function() {
+      switch (input.role) {
+      case 'v':
+      case 'viewer':
+        return 'view';
+      case 's':
+      case 'spender':
+        return 'spend,view';
+      case 'a':
+      case 'admin':
+        return 'admin,spend,view';
+      default:
+        throw new Error('unsupported role');
+      }
+    })();
+
+    if (input.permissions.indexOf('spend') !== -1) {
+      return input.getVariable('password', 'Wallet password: ', true)();
+    }
+  })
+  .then(function() {
+    return self.retryForUnlock(function() {
+      return wallet.shareWallet({
+        email: input.email,
+        permissions: input.permissions,
+        message: input.comment,
+        walletPassphrase: input.password
+      });
+    });
+  })
+  .then(function(result) {
+    self.action('Wallet share created (id=' + result.id + ')');
+  });
+};
+
+BGCL.prototype.handleAcceptShare = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+
+  return this.ensureAuthenticated()
+  .then(input.getVariable('password', 'BitGo Password: ', true))
+  .then(function() {
+    return self.bitgo.verifyPassword({password: input.password});
+  })
+  .then(function(validPassword) {
+    if (!validPassword) {
+      throw new Error('invalid password');
+    }
+    return self.retryForUnlock(function() {
+      return self.bitgo.wallets().acceptShare({
+        walletShareId: input.share,
+        userPassword: input.password,
+      });
+    });
+  })
+  .then(function(result) {
+    if (result.changed) {
+      self.action('Wallet share ' + result.state);
+      if (result.state === 'accepted') {
+        return self.handleWallets(shareToResolve.walletId);
+      }
+    } else {
+      self.info('Wallet share was already accepted');
+    }
+  });
+};
+
+BGCL.prototype.handleCancelShare = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+
+  return this.ensureAuthenticated()
+  .then(function() {
+    return self.bitgo.wallets().cancelShare({ walletShareId: input.share });
+  })
+  .then(function(result) {
+    if (result.changed) {
+      self.action('Wallet share ' + result.state);
+    } else {
+      self.info('Wallet share was already canceled');
+    }
   });
 };
 
@@ -1010,12 +1241,32 @@ BGCL.prototype.handleFreezeWallet = function() {
   })
   .then(function() {
     if (input.confirm !== 'go') {
-      throw new Error('Freeze canceled');
+      throw new Error('canceled');
     }
     return self.session.wallet.freeze({ duration: input.duration });
   })
   .then(function(result) {
     self.info('Wallet frozen until ' + result.expires);
+  });
+};
+
+BGCL.prototype.handleRemoveWallet = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var walletId = this.args.wallet || this.session.wallet.id();
+
+  return this.ensureAuthenticated()
+  .then(function() {
+    return input.getVariable('confirm', 'Type \'yes\' to confirm removing wallet ' + walletId + ': ')();
+  })
+  .then(function() {
+    if (input.confirm !== 'yes') {
+      throw new Error('canceled');
+    }
+    return self.bitgo.wallets().remove({ id: walletId });
+  })
+  .then(function() {
+    self.action('Removed wallet ' + walletId);
   });
 };
 
@@ -1035,7 +1286,7 @@ BGCL.prototype.handleSend = function() {
   })
   .then(input.getVariable('dest', 'Destination address: '))
   .then(input.getVariable('amount', 'Amount (in BTC): '))
-  .then(input.getVariable('passcode', 'Wallet passcode: '))
+  .then(input.getVariable('password', 'Wallet password: '))
   .then(input.getVariable('comment', 'Optional comment: '))
   .then(function() {
     input.comment = input.comment || undefined;
@@ -1063,7 +1314,7 @@ BGCL.prototype.handleSend = function() {
     var txParams = {
       address: input.dest,
       amount: satoshis,
-      walletPassphrase: input.passcode,
+      walletPassphrase: input.password,
       message: input.comment
     };
     return wallet.sendCoins(txParams)
@@ -1103,7 +1354,6 @@ BGCL.prototype.handleNewKey = function() {
   }
   this.addEntropy(128);
   var key = this.genKey();
-  this.action('Created new BIP32 keychain');
   this.info('Seed:  ' + key.seed);
   this.info('xprv:  ' + key.xprv);
   this.info('xpub:  ' + key.xpub);
@@ -1539,8 +1789,18 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleUnlock();
     case 'lock':
       return this.handleLock();
+    case 'sharewallet':
+      return this.handleShareWallet();
+    case 'shares':
+      return this.handleShares();
+    case 'acceptshare':
+      return this.handleAcceptShare();
+    case 'cancelshare':
+      return this.handleCancelShare();
     case 'freezewallet':
       return this.handleFreezeWallet();
+    case 'removewallet':
+      return this.handleRemoveWallet();
     case 'unspents':
     case 'unspent':
       return this.handleUnspents();
@@ -1586,7 +1846,7 @@ BGCL.prototype.run = function() {
     self.modifyAuthError(err);
     console.error(err.message);
     //console.error();
-    // console.error(err.stack);
+    //console.error(err.stack);
   })
   .done();
 };
