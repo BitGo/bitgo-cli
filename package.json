@@ -1,6 +1,6 @@
 {
   "name": "bitgo-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "BitGo command-line interface",
   "main": "src/index.js",
   "bin": {
