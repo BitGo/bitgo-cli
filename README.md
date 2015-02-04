@@ -29,15 +29,17 @@ Optional arguments:
   -v, --version         Show program's version number and exit.
   -e ENV, --env ENV     BitGo environment to use: prod (default) or test. Can
                         also be set with the BITGO_ENV environment variable.
+  -j, --json            output JSON (if available)
 
 subcommands:
-  {login,logout,token,status,wallets,wallet,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,freezewallet,send,spend,newkey,newwallet,splitkeys,recoverkeys,shell,help}
+  {login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,send,spend,freezewallet,removewallet,sharewallet,shares,acceptshare,cancelshare,newkey,newwallet,splitkeys,recoverkeys,shell,help}
     login               Sign in to BitGo
     logout              Sign out of BitGo
     token               Get or set the current auth token
     status              Show current status
     wallets             Get list of available wallets
     wallet              Set or get the current wallet
+    balance             Get current wallet balance
     labels              Show labels
     setlabel            Set a label on any address (in curr. wallet context)
     removelabel         Remove a label on an address (in curr. wallet context)
@@ -47,8 +49,9 @@ subcommands:
     tx                  List transactions on the current wallet
     unlock              Unlock the session to allow transacting
     lock                Re-lock the session
-    freezewallet        Freeze (time-lock) the current wallet
     send                Create and send a transaction
+    freezewallet        Freeze (time-lock) the current wallet
+    removewallet        Remove a wallet from your account
     newkey              Create a new BIP32 keychain (client-side only)
     newwallet           Create a new Multi-Sig HD wallet
     splitkeys           Create set of BIP32 keys, split into encrypted shares.
@@ -67,8 +70,24 @@ $ export BITGO_ENV=test
 The testnet environment is a completely separate namespace from the BitGo production database. You will need to set up separate accounts on [test.bitgo.com](https://test.bitgo.com/) for testing purposes.  Note that in the test environment, while standard Authy codes still work for 2FA, it is also possible to use a code of 0000000 (7 zeroes).
 
 # Sessions
+
 The tool maintains one current login session per environment (prod or test). The sessions are persisted in JSON format files in **~/.bitgo**.  Each session maintains the user's current auth token, and maintains a current wallet. All of the commands that operate on a wallet use this current wallet context. In order to operate on a different wallet, it must first be selected using the **wallet** command.
 
+# Output formats
+
+A number of the commands support outputting in JSON format as well as the normal human-readable format. To enable JSON output, use the **-j** command
+line flag **before** the command, for example:
+
+```
+$ bitgo -j status
+{
+  "env": "test",
+  "network": "testnet",
+  "sessionFile": "/Users/me/.bitgo/test.json",
+  "user": "me@me.com",
+  "wallet": "2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao"
+}
+```
 
 # Commands
 
@@ -130,6 +149,15 @@ $ bitgo wallet <addr>   # selects wallet by address
 $ bitgo wallet <name>   # selects wallet by name
 ```
 
+## balance
+Get the balance of the current wallet.
+```
+$ bitgo balance         # get balance in BTC
+$ bitgo balance -c      # get confirmed balance in BTC
+$ bitgo balance -u bits # get balance in bits
+$ bitgo balance -u sat  # get balance in satoshis
+```
+
 ## labels
 Show address labels associated with the current wallet, or all wallets.
 ```
@@ -154,13 +182,15 @@ Show receive addresses for the current wallet, and optionally change addresses. 
 ```
 $ bitgo addresses           # show receive addresses only
 $ bitgo addresses -c        # include change addresses
+$ bitgo -j addresses        # show addresses in JSON format
 ```
 
 ## newaddress
 Generate a new receive address for the current wallet
 ```
-$ bitgo newaddress
-*** Created new receive address: 3NCsnZpdioF5ZCmnuSyzeb8nH4Rp4XRzdu1
+$ bitgo newaddress          # get a new receive address
+$ bitgo newaddress -c       # get a new change <address>
+$ bitgo newaddress -l "foo" # get a new receive address labeled "foo"
 ```
 
 ## unspents
@@ -175,6 +205,7 @@ List transactions on the current wallet.
 ```
 $ bitgo tx                  # show last 25 transactions
 $ bitgo tx -n 100           # show last 100 transactions
+$ bitgo -j tx               # show last 25 transactions in JSON format
 ```
 
 ## unlock
@@ -211,15 +242,39 @@ Type 'go' to confirm: go
 *** Sent transaction 9ef2042647ceb0b1ec8f18733ab46d11c330b4449549fe37a9c559e170806d0e
 ```
 
+## freezewallet
+Freeze a BitGo wallet. This command effectively time-locks a wallet, so that BitGo will refuse to sign any transactions until the freeze
+expires. Be careful when freezing a wallet, as there is no way to unfreeze a wallet without either waiting for the time to expire without
+help from BitGo support.
+
+```
+$ bitgo freezewallet -d 60
+Please confirm you wish to freeze wallet 'My Wallet' for 60 seconds.
+BitGo will not sign any transactions on this wallet until the freeze expires.
+Type 'go' to confirm: go
+Wallet frozen until 2015-02-03T22:46:56.352Z
+```
+
+## removewallet
+Remove a wallet from your BitGo account. If the wallet is shared, and you are not the last admin, it removes your access to
+the wallet but does not affect other users' access. If you are the last admin on the wallet, it will mark the wallet as deleted
+and it will not currently be recoverable without assistance from BitGo.
+
+```
+$ bitgo removewallet 2MzoQpTopwMD7dfufGeHHvZYfEDrMdxibTM
+Type 'yes' to confirm removing wallet 2MzoQpTopwMD7dfufGeHHvZYfEDrMdxibTM: yes
+*** Removed wallet 2MzoQpTopwMD7dfufGeHHvZYfEDrMdxibTM
+```
+
 ## newkey
 Create a new BIP32 root key. This is a client-side only operation. It does not require the user to be authenticated with BitGo, and does not contact the BitGo server.  Additional entropy may be provided on the command line.
 ```
-$bitgo newkey
-*** Created new BIP32 keychain
-
-Seed:  cf44970e1a5b972a7abc5023be35069806db8d7213e6d36696bd0082acb65fbe
-xprv:  xprv9s21ZrQH143K4VhG7qJDmkxy8RKWte5nQtL7eDdExjcjAttQGv7jA5C9mKEFCqJ4iEpnTombJtHyLgtmtGhETJWoxzHnTwxPBAoNouR49JQ
-xpub:  xpub661MyMwAqRbcGymjDrqE8tuhgTA1J6odn7FiSc2rX59i3hDYpTRyhsWdccmcbRku4MgqAVTnq9tnc5cQZCBa6STbMrGVwiRmXKvdYabwaok
+$ bitgo -j newkey
+{
+  "seed": "72cc2a8728529c17432031ca5a37851b9dfe254f5427f7ebedb6c15abac22575",
+  "xpub": "xpub661MyMwAqRbcGi5Yk7XnMMp9tkfe4hVGpo6QEgmkzjxCEzjxzJJU458dJWJjdErQbVJg5fb6iGvb2o4GKEYbycXMWo1CXYiw4RhexSYZsh2",
+  "xprv": "xprv9s21ZrQH143K4E15e5zmzDsRLiq9fEmRTaAoSJN9SQRDNCQpSkzDWGp9TDErubsFHbUwHVEwWgpMssULihY2Rayek52VTVdj1wUXeiV2c56"
+}
 ```
 
 ## newwallet
@@ -253,7 +308,7 @@ Enter BitGo password: ********************
 Launch the BitGo shell, which simply allows you to run commands without prefixing them with **bitgo**. No other shell functionality is provided. Use Ctrl-C or Ctrl-D to exit.
 ```
 bitgo -t shell
-[bitgo @ My Cool Wallet]฿ status
+[bitgo @ My Cool Wallet]Ƀ status
 ```
 
 ## splitkeys

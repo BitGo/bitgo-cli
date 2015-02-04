@@ -12,8 +12,11 @@ var secrets = require('secrets.js');
 var sjcl = require('sjcl');
 var _ = require('lodash');
 _.string = require('underscore.string');
+var pjson = require('../package.json');
+var CLI_VERSION = pjson.version;
 
-//Q.longStackSupport = true;
+// Enable for better debugging
+// Q.longStackSupport = true;
 
 var permsToRole = {};
 permsToRole['admin,spend,view'] = 'admin';
@@ -26,13 +29,13 @@ function getUserHome() {
 
 var BITGO_DIR = getUserHome() + '/.bitgo';
 
-function filename(name) {
+function jsonFilename(name) {
   return BITGO_DIR + '/' + name + '.json';
 }
 
 function loadJSON(name) {
   try {
-    data = fs.readFileSync(filename(name), {encoding: 'utf8'});
+    data = fs.readFileSync(jsonFilename(name), {encoding: 'utf8'});
     return JSON.parse(data);
   } catch (e) {
     return undefined;
@@ -44,7 +47,7 @@ function saveJSON(name, data) {
     fs.mkdirSync(BITGO_DIR, 0700);
   }
   data = JSON.stringify(data, null, 2);
-  fs.writeFileSync(filename(name), data, {encoding: 'utf8', mode: 0600});
+  fs.writeFileSync(jsonFilename(name), data, {encoding: 'utf8', mode: 0600});
 }
 
 var UserInput = function(args) {
@@ -281,6 +284,7 @@ BGCL.prototype.createArgumentParser = function() {
       help: 'BitGo environment to use: prod (default) or test. Can also be set with the BITGO_ENV environment variable.'
     }
   );
+  parser.addArgument(['-j', '--json'], { action: 'storeTrue', help: 'output JSON (if available)' });
 
   var subparsers = parser.addSubparsers({
     title:'subcommands',
@@ -329,6 +333,14 @@ BGCL.prototype.createArgumentParser = function() {
   });
   wallet.addArgument(['wallet'], {nargs: '?', help: 'the index, id, or name of the wallet to set as current'});
 
+  // balance
+  var balance = subparsers.addParser('balance', {
+    addHelp: true,
+    help: 'Get current wallet balance'
+  });
+  balance.addArgument(['-c', '--confirmed'], { action: 'storeTrue', help: 'Exclude unconfirmed transactions' });
+  balance.addArgument(['-u', '--unit'], { help: 'select units: satoshi | bits | btc [default]'});
+
   // labels
   var labels = subparsers.addParser('labels', {
     addHelp: true,
@@ -360,13 +372,15 @@ BGCL.prototype.createArgumentParser = function() {
     addHelp: true,
     help: 'List addresses for the current wallet'
   });
-  addresses.addArgument(['-c', '--change'], {action: 'storeConst', constant: 1, help: 'include change addresses'});
+  addresses.addArgument(['-c', '--change'], {action: 'storeTrue', help: 'include change addresses'});
 
   // newaddress
   var newAddress = subparsers.addParser('newaddress', {
     addHelp: true,
     help: 'Create a new receive address for the current wallet'
   });
+  newAddress.addArgument(['-c', '--change'], { action: 'storeTrue', help: 'create a change address' });
+  newAddress.addArgument(['-l', '--label'], { help: 'optional label'});
 
   // unspents
   var unspents = subparsers.addParser('unspents', {
@@ -425,8 +439,8 @@ BGCL.prototype.createArgumentParser = function() {
 
   // sharewallet
   var shareWallet = subparsers.addParser('sharewallet', {
-    addHelp: true,
-    help: 'Share the current wallet with another user'
+    // addHelp: true,
+    // help: 'Share the current wallet with another user'
   });
   shareWallet.addArgument(['-e', '--email'], {help: "email address of the recipient's BitGo account"});
   shareWallet.addArgument(['-r', '--role'], {
@@ -440,21 +454,21 @@ BGCL.prototype.createArgumentParser = function() {
 
   // shares
   var shares = subparsers.addParser('shares', {
-    addHelp: true,
-    help: 'List outstanding wallet shares (incoming and outgoing)'
+    // addHelp: true,
+    // help: 'List outstanding wallet shares (incoming and outgoing)'
   });
 
   // acceptshare
   var acceptShare = subparsers.addParser('acceptshare', {
-    addHelp: true,
-    help: 'Accept a wallet share invite'
+    // addHelp: true,
+    // help: 'Accept a wallet share invite'
   });
   acceptShare.addArgument(['share'], {help: 'the share id'});
 
   // cancelshare
   var cancelShare = subparsers.addParser('cancelshare', {
-    addHelp: true,
-    help: 'Cancel or decline a wallet share invite'
+    // addHelp: true,
+    // help: 'Cancel or decline a wallet share invite'
   });
   cancelShare.addArgument(['share'], {help: 'the share id'});
 
@@ -517,12 +531,26 @@ BGCL.prototype.toBTC = function(satoshis, decimals) {
   return (satoshis * 1e-8).toFixed(decimals);
 };
 
+BGCL.prototype.toBits = function(satoshis, decimals) {
+  if (satoshis === 0) {
+    return '0';
+  }
+  if (typeof(decimals) == 'undefined') {
+    decimals = 2;
+  }
+  return (satoshis * 1e-2).toFixed(decimals);
+};
+
 BGCL.prototype.inBrackets = function(str) {
   return '[' + str + ']';
 };
 
 BGCL.prototype.info = function(line) {
   console.log(line);
+};
+
+BGCL.prototype.printJSON = function(obj) {
+  this.info(JSON.stringify(obj, null, 2));
 };
 
 BGCL.prototype.action = function(line) {
@@ -585,6 +613,11 @@ BGCL.prototype.retryForUnlock = function(func) {
       throw err;
     }
   });
+};
+
+BGCL.prototype.getRandomPassword = function() {
+  this.addEntropy(128);
+  return bitgo.Base58.encode(sjcl.random.randomWords(7));
 };
 
 BGCL.prototype.handleToken = function() {
@@ -662,14 +695,34 @@ BGCL.prototype.handleLogout = function() {
 };
 
 BGCL.prototype.handleStatus = function() {
-  this.info('Environment: ' + this.bitgo.getEnv() + ' / ' + bitgo.getNetwork());
-  this.info('Session file: ' + filename(this.bitgo.getEnv()));
-  this.userHeader();
   var self = this;
+  var status = {
+    env: this.bitgo.getEnv(),
+    network: bitgo.getNetwork(),
+    sessionFile: jsonFilename(this.bitgo.getEnv()),
+  };
+  if (this.bitgo.user()) {
+    status.user = this.bitgo.user().username;
+  }
+  if (this.session.wallet) {
+    status.wallet = this.session.wallet.id();
+  }
   return self.ensureAuthenticated()
   .then(function() {
-    self.info('Logged in');
-    self.walletHeader();
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(status);
+    }
+
+    // normal output
+    self.info('Environment: ' + status.env);
+    self.info('Network: ' + status.network);
+    self.info('Session file: ' + status.sessionFile);
+    self.userHeader();
+    return self.ensureAuthenticated()
+    .then(function() {
+      self.walletHeader();
+    });
   });
 };
 
@@ -758,6 +811,12 @@ BGCL.prototype.handleWallets = function(setWallet) {
       self.session.save();
     }
 
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(sortedWallets);
+    }
+
+    // Normal output
     if (sortedWallets.length) {
       self.printWalletList(sortedWallets);
       self.info('\nCurrent wallet marked with >>. Use the wallet cmd to change.');
@@ -781,6 +840,12 @@ BGCL.prototype.handleWallet = function() {
     return wallet.createAddress({allowExisting: '1'});
   })
   .then(function(address) {
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(wallet.wallet);
+    }
+
+    // normal output
     var unconfirmed = (wallet.balance() !== wallet.confirmedBalance()) ? '  [ ** includes unconfirmed ]' : '';
     self.info('Current Wallet:');
     self.info('  Name:         ' + wallet.label());
@@ -788,6 +853,55 @@ BGCL.prototype.handleWallet = function() {
     self.info('  Balance:      ' + self.toBTC(wallet.balance(), 8) + ' BTC' + unconfirmed);
     self.info('  Confirmed:    ' + self.toBTC(wallet.confirmedBalance(), 8) + ' BTC');
     self.info('  Recv address: ' + address.address + ' ' + self.inBrackets(address.index) );
+  });
+};
+
+BGCL.prototype.handleBalance = function() {
+  var self = this;
+
+  var units = {
+    s: 'satoshis',
+    sat: 'satoshis',
+    satoshi: 'satoshis',
+    satoshis: 'satoshis',
+    bit: 'bits',
+    bits: 'bits',
+    btc: 'btc',
+    bitcoin: 'btc'
+  };
+
+  var unit = units[this.args.unit] || 'btc';
+
+  var convert = function(balance) {
+    switch (unit) {
+      case 'satoshis':
+        return balance.toFixed(0);
+      case 'bits':
+        return self.toBits(balance, 2);
+      case 'btc':
+        return self.toBTC(balance, 8);
+    }
+  };
+
+  if (!this.session.wallet) {
+    throw new Error('No current wallet set. Use the setwallet command to set one.');
+  }
+  return this.bitgo.wallets().get({id: this.session.wallet.id() })
+  .then(function(wallet) {
+    // JSON output
+    if (self.args.json) {
+      var balances = {
+        unit: unit,
+        balance: Number(convert(wallet.balance())),
+        confirmedBalance: Number(convert(wallet.confirmedBalance())),
+        unconfirmedBalance: Number(convert(wallet.balance() - wallet.confirmedBalance()))
+      };
+      return self.printJSON(balances);
+    }
+
+    // normal output
+    var balance = self.args.confirmed ? wallet.confirmedBalance() : wallet.balance();
+    self.info(convert(balance));
   });
 };
 
@@ -802,6 +916,12 @@ BGCL.prototype.handleLabels = function() {
     labelsByWallet[walletId] = labels;
   }
 
+  // JSON output
+  if (this.args.json) {
+    return this.printJSON(labelsByWallet);
+  }
+
+  // normal output
   var sortedWallets = _.sortBy(_.values(this.session.wallets), function(w) { return w.label + w.id; });
   sortedWallets.forEach(function(wallet) {
     var labels = labelsByWallet[wallet.id];
@@ -891,6 +1011,19 @@ BGCL.prototype.handleAddresses = function() {
   if (this.args.change) {
     queries.push(wallet.addresses({chain: 1, limit: 200, details: '1'}));
   }
+
+  // JSON output
+  if (this.args.json) {
+    var json = {
+      receive: receiveAddresses.addresses
+    };
+    if (changeAddresses) {
+      json.change = changeAddresses.addresses;
+    }
+    return this.printJSON(json);
+  }
+
+  // normal output
   this.walletHeader();
   return Q.spread(queries, function(receiveAddresses, changeAddresses) {
     self.info('\nReceive Addresses:');
@@ -899,19 +1032,41 @@ BGCL.prototype.handleAddresses = function() {
       self.info('\nChange Addresses:');
       printAddressList(changeAddresses.addresses);
     }
-//    console.dir(addresses);
   });
 };
 
 BGCL.prototype.handleNewAddress = function() {
   var self = this;
-  if (!this.session.wallet) {
+  var wallet = this.session.wallet;
+  var label = this.args.label;
+  var address;
+
+  if (!wallet) {
     throw new Error('No current wallet.');
   }
-  return this.session.wallet.createAddress()
-  .then(function(address) {
-    self.action('Created new receive address: ' + address.address);
-    return self.handleWallet();
+  var params = {
+    chain: this.args.change ? 1 : 0
+  };
+  return wallet.createAddress(params)
+  .then(function(result) {
+    address = result;
+    if (label) {
+      var url = self.bitgo.url('/labels/' + wallet.id() + '/' + address.address);
+      return self.bitgo.put(url)
+      .send({ label: label })
+      .result()
+      .then(function() {
+        return self.fetchLabels();
+      });
+    }
+  })
+  .then(function() {
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(address);
+    }
+    // normal output
+    self.info(address.address);
   });
 };
 
@@ -923,6 +1078,11 @@ BGCL.prototype.handleUnspents = function() {
   }
   return this.session.wallet.unspents()
   .then(function(unspents) {
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(unspents);
+    }
+
     var total = 0;
     self.info('Conf' + '  ' +
       _.string.lpad('Amount', 11) + '  ' +
@@ -939,7 +1099,7 @@ BGCL.prototype.handleUnspents = function() {
         );
       }
     });
-    self.info('\newTotal: ' + self.toBTC(total));
+    self.info('\nTotal: ' + self.toBTC(total));
   });
 };
 
@@ -965,7 +1125,6 @@ BGCL.prototype.handleTxList = function() {
           target = 'self';
         } else {
           target = self.formatWalletId(tx.otherWalletId);
-//          target = self.inBrackets('Wallet: ' + _.string.truncate(tx.otherWalletId, 12));
         }
       } else if (tx.toAddress) {
         target = self.session.labelForAddress(tx.toAddress) || tx.toAddress;
@@ -1030,6 +1189,11 @@ BGCL.prototype.handleTxList = function() {
     return getTransactions(0, limit);
   })
   .then(function() {
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(transactions);
+    }
+    // normal output
     self.walletHeader();
     printTxList(transactions);
   });
@@ -1105,8 +1269,13 @@ BGCL.prototype.handleShares = function() {
     return self.fetchUsers(userIds);
   })
   .then(function(users) {
-    var indexedUsers = _.indexBy(users, 'id');
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(shares);
+    }
 
+    // normal output
+    var indexedUsers = _.indexBy(users, 'id');
     if (shares.incoming.length) {
       self.info('\nIncoming Shares:');
       printShareList(shares.incoming, indexedUsers, true);
@@ -1354,10 +1523,15 @@ BGCL.prototype.handleNewKey = function() {
   }
   this.addEntropy(128);
   var key = this.genKey();
+  // JSON output
+  if (this.args.json) {
+    return this.printJSON(key);
+  }
+
+  // normal output
   this.info('Seed:  ' + key.seed);
   this.info('xprv:  ' + key.xprv);
   this.info('xpub:  ' + key.xpub);
-  return Q(key);
 };
 
 BGCL.prototype.handleNewWallet = function() {
@@ -1371,6 +1545,20 @@ BGCL.prototype.handleNewWallet = function() {
   var userKeychain;
   var backupKeychain;
   var bitgoKeychain;
+
+  var getPassword = function() {
+    return input.getPassword('password', 'Enter BitGo password: ')()
+    .then(function() {
+      return self.bitgo.verifyPassword({password: input.password});
+    })
+    .then(function(valid) {
+      if (!valid) {
+        self.info('Incorrect password - try again');
+        delete input.password;
+        return getPassword();
+      }
+    });
+  };
 
   return this.ensureAuthenticated()
   .then(function() {
@@ -1388,7 +1576,7 @@ BGCL.prototype.handleNewWallet = function() {
     if (input.userkey === '') {
       var keychain = self.bitgo.keychains().create();
       input.userkey = keychain.xprv;
-      self.action('Created user key: ' + keychain.xprv);
+      self.action('Created user key: ' + keychain.xpub);
     }
     try {
       userkey = new bitgo.BIP32(input.userkey);
@@ -1416,7 +1604,7 @@ BGCL.prototype.handleNewWallet = function() {
     }
   })
   .then(input.getVariable('name', 'Name this wallet: '))
-  .then(input.getVariable('password', 'Enter BitGo password: '))
+  .then(getPassword)
   .then(function() {
     // Create user keychain
     userKeychain = {
@@ -1427,6 +1615,7 @@ BGCL.prototype.handleNewWallet = function() {
         password: input.password,
         input: userkey.extended_private_key_string()
       });
+      userKeychain.passcodeRecoveryCode = self.getRandomPassword();
     }
     return self.bitgo.keychains().add(userKeychain);
   })
@@ -1457,6 +1646,31 @@ BGCL.prototype.handleNewWallet = function() {
   })
   .then(function(wallet) {
     self.action('Created wallet ' + wallet.id());
+
+    var recovery = {
+      info: 'Recovery information for wallet ' + wallet.id() + ' (' + wallet.label() + ')',
+      keys: {
+        user: {
+          xpub: userKeychain.xpub,
+          encryptedXprv: userKeychain.encryptedXprv,
+        },
+        backup: {
+          xpub: backupKeychain.xpub
+        },
+        bitgo: {
+          xpub: bitgoKeychain.xpub
+        }
+      }
+    };
+
+    if (userKeychain.passcodeRecoveryCode) {
+      recovery.keys.user.encryptedPassword = sjcl.encrypt(userKeychain.passcodeRecoveryCode, input.password);
+    }
+
+    var recoveryFile = jsonFilename('recovery.' + wallet.id());
+    fs.writeFileSync(recoveryFile, JSON.stringify(recovery, null, 2));
+    self.action('Wrote wallet recovery info to ' + recoveryFile);
+
     return self.handleWallets(wallet.id());
   });
 };
@@ -1680,7 +1894,7 @@ BGCL.prototype.handleRecoverKeys = function() {
         xprv: xprv
       };
     });
-    console.log(JSON.stringify(recoveredKeys, null, 2));
+    self.printJSON(recoveredKeys);
   });
 };
 
@@ -1773,6 +1987,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
         });
       }
       return this.handleWallet();
+    case 'balance':
+      return this.handleBalance();
     case 'labels':
       return this.handleLabels();
     case 'setlabel':
@@ -1832,7 +2048,8 @@ BGCL.prototype.run = function() {
 
   // Setup BitGo for chosen environment
   var env = this.args.env || process.env.BITGO_ENV || 'prod';
-  this.bitgo = new bitgo.BitGo({ env: env });
+  var userAgent = "BitGoCLI/" + CLI_VERSION;
+  this.bitgo = new bitgo.BitGo({ env: env, userAgent: userAgent });
 
   this.session = new Session(this.bitgo);
   this.session.load();
