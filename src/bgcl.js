@@ -275,7 +275,7 @@ var BGCL = function() {
 
 BGCL.prototype.createArgumentParser = function() {
   var parser = new ArgumentParser({
-    version: '0.1',
+    version: CLI_VERSION,
     addHelp:true,
     description: 'BitGo Command-Line'
   });
