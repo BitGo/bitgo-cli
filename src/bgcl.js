@@ -1881,7 +1881,12 @@ BGCL.prototype.handleRecoverKeys = function() {
       var shares = passwords.map(function(p) {
         return sjcl.decrypt(p.password, key.seedShares[p.shareIndex]);
       });
-      var seed = secrets.combine(shares);
+      var seed;
+      if (shares.length === 1) {
+        seed = shares[0];
+      } else {
+        seed = secrets.combine(shares);
+      }
       var bip32 = new bitgo.BIP32().initFromSeed(seed);
       var xpub = bip32.extended_public_key_string();
       var xprv = bip32.extended_private_key_string();
