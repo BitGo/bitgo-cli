@@ -584,9 +584,8 @@ BGCL.prototype.formatWalletId = function(walletId) {
 };
 
 BGCL.prototype.fetchLabels = function() {
-  // TODO: add labels fetch to SDK
   var self = this;
-  return this.bitgo.get(this.bitgo.url('/labels')).result('labels')
+  return this.bitgo.labels()
   .then(function(labels) {
     self.session.labels = _.groupBy(labels, 'address');
     self.session.save();
@@ -939,7 +938,6 @@ BGCL.prototype.handleLabels = function() {
 BGCL.prototype.handleSetLabel = function() {
   var self = this;
 
-  // TODO: use label APIs in SDK when available
   var wallet = this.session.wallet;
   var address = this.args.address;
   var label = this.args.label;
@@ -949,10 +947,8 @@ BGCL.prototype.handleSetLabel = function() {
     if (!self.session.wallet) {
       throw new Error('No current wallet.');
     }
-    var url = self.bitgo.url('/labels/' + wallet.id() + '/' + address);
-    return self.bitgo.put(url)
-    .send({ label: label })
-    .result();
+
+    return wallet.setLabel({address: address, label: label});
   })
   .then(function(result) {
     self.action('Labeled ' + address + " to '" + label + "' in wallet '" + wallet.label() + "'");
@@ -962,7 +958,7 @@ BGCL.prototype.handleSetLabel = function() {
 
 BGCL.prototype.handleRemoveLabel = function() {
   var self = this;
-  // TODO: use label APIs in SDK when available
+
   var wallet = this.session.wallet;
   var address = this.args.address;
 
@@ -971,9 +967,7 @@ BGCL.prototype.handleRemoveLabel = function() {
     if (!self.session.wallet) {
       throw new Error('No current wallet.');
     }
-    var url = self.bitgo.url('/labels/' + wallet.id() + '/' + address);
-    return self.bitgo.del(url)
-    .result();
+    return wallet.deleteLabel({address: address});
   })
   .then(function(result) {
     self.action('Removed label for ' + address + " in wallet '" + wallet.label() + "'");
