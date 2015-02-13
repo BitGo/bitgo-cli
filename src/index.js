@@ -1,4 +1,1 @@
-
-module.exports = {
-  BGCL: require('./bgcl'),
-};
+module.exports = require('./bgcl');

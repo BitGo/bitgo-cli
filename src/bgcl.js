@@ -2067,4 +2067,8 @@ BGCL.prototype.run = function() {
   .done();
 };
 
-exports = module.exports = BGCL;
+exports = module.exports = {
+  BGCL: BGCL,
+  UserInput: UserInput,
+  Session: Session
+};
