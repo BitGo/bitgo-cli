@@ -777,7 +777,8 @@ BGCL.prototype.handleWallets = function(setWallet) {
 
   return self.bitgo.wallets().list()
   .then(function(result) {
-    var wallets = result.wallets;
+    var wallets = result.wallets.filter(function(w) { return w.type !== 'coinbase'; });
+
     // Save wallets map to session
     var sessionWallets = {};
     wallets.forEach(function(w) {
