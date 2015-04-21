@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 var ArgumentParser = require('argparse').ArgumentParser;
+var bitcoin = require('bitcoinjs-lib');
 var bitgo = require('bitgo');
+var bs58check = require('bs58check');
 var crypto = require('crypto');
 var Q = require('q');
 var fs = require('fs');
@@ -410,18 +412,17 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Re-lock the session'
   });
 
-  // send
-  var send = subparsers.addParser('send', {
-    aliases: ['spend'],
+  // sendtoaddress
+  var sendToAddress = subparsers.addParser('sendtoaddress', {
     addHelp: true,
     help: 'Create and send a transaction'
   });
-  send.addArgument(['-d', '--dest'], {help: 'the destination address'});
-  send.addArgument(['-a', '--amount'], {help: 'the amount in BTC'});
-  send.addArgument(['-p', '--password'], {help: 'the wallet password'});
-  send.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
-  send.addArgument(['-c', '--comment'], {help: 'optional comment'});
-  send.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
+  sendToAddress.addArgument(['-d', '--dest'], {help: 'the destination address'});
+  sendToAddress.addArgument(['-a', '--amount'], {help: 'the amount in BTC'});
+  sendToAddress.addArgument(['-p', '--password'], {help: 'the wallet password'});
+  sendToAddress.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
+  sendToAddress.addArgument(['-c', '--comment'], {help: 'optional private comment'});
+  sendToAddress.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
 
   // freezewallet
   var freezeWallet = subparsers.addParser('freezewallet', {
@@ -504,6 +505,32 @@ BGCL.prototype.createArgumentParser = function() {
   });
   recoverKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
   recoverKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
+
+  var createTx = subparsers.addParser('createtx', {
+    addHelp: true,
+    help: "Create an unsigned transaction (online) for signing (the signing can be done offline)"
+  });
+  createTx.addArgument(['-d', '--dest'], {help: 'the destination address'});
+  createTx.addArgument(['-a', '--amount'], {help: 'the amount in BTC'});
+  createTx.addArgument(['-f', '--fee'], {help: 'fee to pay for transaction'});
+  createTx.addArgument(['-c', '--comment'], {help: 'optional private comment'});
+  createTx.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
+
+  var signTx = subparsers.addParser('signtx', {
+    addHelp: true,
+    help: 'Sign a transaction (can be used offline) with an input transaction JSON file'
+  });
+  signTx.addArgument(['-f', '--file'], { help: 'the input transaction file (JSON format)'});
+  signTx.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
+  signTx.addArgument(['-k', '--key'], {help: 'xprv (private key) for signing'});
+  signTx.addArgument(['-p', '--prefix'], { nargs: '?', help: 'optional output file prefix' });
+
+  var sendTransaction = subparsers.addParser('sendtx', {
+    addHelp: true,
+    help: 'Send a transaction for co-signing to BitGo'
+  });
+  sendTransaction.addArgument(['-t', '--txhex'], { help: 'the transaction hex to send'});
+  sendTransaction.addArgument(['-f', '--file'], { nargs: '?', help: 'optional input file containing the tx hex' });
 
   // shell
   var shell = subparsers.addParser('shell', {
@@ -616,7 +643,7 @@ BGCL.prototype.retryForUnlock = function(func) {
 
 BGCL.prototype.getRandomPassword = function() {
   this.addEntropy(128);
-  return bitgo.Base58.encode(sjcl.random.randomWords(7));
+  return bs58check.encode(new Buffer(sjcl.random.randomWords(7)));
 };
 
 BGCL.prototype.handleToken = function() {
@@ -749,7 +776,7 @@ BGCL.prototype.handleWallets = function(setWallet) {
   var setWalletType;
   if (setWallet) {
     try {
-      new bitgo.Address(setWallet);
+      bitcoin.Address.fromBase58Check(setWallet);
       setWalletType = 'id';
     } catch (e) {
       var walletIndex = parseInt(setWallet);
@@ -1434,7 +1461,7 @@ BGCL.prototype.handleRemoveWallet = function() {
   });
 };
 
-BGCL.prototype.handleSend = function() {
+BGCL.prototype.handleSendCoins = function() {
   var self = this;
   var input = new UserInput(this.args);
   var satoshis;
@@ -1455,7 +1482,7 @@ BGCL.prototype.handleSend = function() {
   .then(function() {
     input.comment = input.comment || undefined;
     try {
-      new bitgo.Address(input.dest);
+      bitcoin.Address.fromBase58Check(input.dest);
     } catch (e) {
       throw new Error('Invalid destination address');
     }
@@ -1500,15 +1527,240 @@ BGCL.prototype.handleSend = function() {
   });
 };
 
+BGCL.prototype.handleCreateTx = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var satoshis;
+
+  return this.ensureAuthenticated()
+  .then(function () {
+    if (!self.session.wallet) {
+      throw new Error('No current wallet.');
+    }
+    self.walletHeader();
+    self.info('Create Unsigned Transaction\n');
+  })
+  .then(input.getVariable('dest', 'Destination address: '))
+  .then(input.getVariable('amount', 'Amount (in BTC): '))
+  .then(input.getVariable('fee', 'Blockchain fee (blank to use default fee calculation): '))
+  .then(input.getVariable('comment', 'Optional private comment: '))
+  .then(function() {
+    input.comment = input.comment || undefined;
+    try {
+      bitcoin.Address.fromBase58Check(input.dest);
+    } catch (e) {
+      throw new Error('Invalid destination address');
+    }
+    satoshis = Math.floor(Number(input.amount) * 1e8);
+    if (isNaN(satoshis)) {
+      throw new Error('Invalid amount (non-numeric)');
+    }
+    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
+  })
+  .then(function(wallet) {
+    var recipients = {};
+    recipients[input.dest] = satoshis;
+    var params = { recipients: recipients };
+    if (input.fee) {
+      params.fee = Math.floor(Number(input.fee) * 1e8);
+      if (isNaN(params.fee)) {
+        throw new Error('Invalid fee (non-numeric)');
+      }
+    }
+    return wallet.createTransaction(params)
+    .catch(function(err) {
+      if (err.needsOTP) {
+        // unlock
+        return self.handleUnlock()
+        .then(function() {
+          // try again
+          return wallet.createTransaction(params);
+        });
+      } else {
+        throw err;
+      }
+    });
+  })
+  .then(function(tx) {
+    self.info('Created unsigned transaction for ' + self.toBTC(satoshis) + ' BTC + ' + tx.fee/1e8 + ' BTC blockchain fee to ' + input.dest + '\n');
+    tx.comment = input.comment;
+    if (!input.prefix) {
+      input.prefix = 'tx' + moment().format('YYYYMDHm');
+    }
+    var filename = input.prefix + '.json';
+    fs.writeFileSync(filename, JSON.stringify(tx, null, 2));
+    console.log('Wrote ' + filename);
+  });
+};
+
+BGCL.prototype.handleSignTx = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var params;
+  var wallet;
+
+  return Q()
+  .then(input.getVariable('file', 'Input transaction file: '))
+  .then(input.getVariable('key', 'Private BIP32 key (xprv): '))
+  .then(function() {
+    // Grab transaction data (hex, wallet info) from the json file
+    var json = fs.readFileSync(input.file);
+    params = JSON.parse(json);
+    return self.bitgo.newWalletObject({wallet: {id: params.walletId}, private: { keychains: params.walletKeychains }});
+  })
+  .then(function(result) {
+    wallet = result;
+
+    // Validate inputs
+    try {
+      var hdNode = bitcoin.HDNode.fromBase58(input.key);
+    } catch(e) {
+      throw new Error('invalid private key');
+    }
+
+    if (hdNode.toBase58() === hdNode.neutered().toBase58()) {
+      throw new Error('must provide the private (not public) key');
+    }
+
+    var pubKey = hdNode.neutered().toBase58();
+    var xpubs = _.initial(_.pluck(wallet.keychains, 'xpub'));
+    if (!_.contains(xpubs, pubKey))
+    {
+      throw new Error('did not provide a private key valid for the wallet that created this transaction');
+    }
+
+    params.keychain = {
+      xpub: pubKey,
+      path: 'm',
+      xprv: input.key
+    };
+
+    // validate  the change address is owned by the wallet
+    var changeAddress;
+    if (params.changeAddress && params.changeAddress.address) {
+      wallet.validateAddress(params.changeAddress);
+      changeAddress = params.changeAddress.address;
+    }
+    // validate the wallet id is the first address
+    wallet.validateAddress({ address: params.walletId, path: "/0/0" });
+
+    var transaction = bitcoin.Transaction.fromHex(params.transactionHex);
+
+    self.info('You are signing a transaction from the wallet: ' + params.walletId);
+    if (params.comment) {
+      self.info('Comment: ' + params.comment);
+    }
+
+    for(var i=0; i < transaction.outs.length; i++) {
+      var outputAddress = bitcoin.Address.fromOutputScript(transaction.outs[i].script);
+      if (changeAddress == outputAddress) {
+        outputAddress += ' (verified change address back to wallet)';
+      }
+      self.info('Output #' + (i+1) + ': ' + transaction.outs[i].value / 1e8 + ' BTC to ' + outputAddress);
+    }
+
+    return input.getVariable('confirm', 'Type \'go\' to confirm: ')();
+  })
+  .then(function() {
+    if (input.confirm !== 'go') {
+      throw new Error('Transaction canceled');
+    }
+    return wallet.signTransaction(params);
+  })
+  .then(function(tx) {
+    self.info('Signed transaction using the key provided. ');
+    tx.comment = params.comment;
+    if (!input.prefix) {
+      // if output prefix not provided, use the input file
+      input.prefix = input.file.replace(/\.[^/.]+$/, "");
+    }
+    var filename = input.prefix + '.signed.json';
+    fs.writeFileSync(filename, JSON.stringify(tx, null, 2));
+    console.log('Wrote ' + filename);
+  });
+};
+
+BGCL.prototype.handleSendTx = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var wallet;
+  var params;
+
+  return this.ensureAuthenticated()
+  .then(function () {
+    if (!self.session.wallet) {
+      throw new Error('No current wallet.');
+    }
+    self.walletHeader();
+    self.info('Send Transaction\n');
+    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
+  })
+  .then(function(result) {
+    wallet = result;
+    if (input.txhex || input.file) {
+      return;
+    }
+    return input.getVariable('txInput', 'Transaction (hex or file): ')();
+  })
+  .then(function() {
+    if (input.txInput) {
+      if (fs.existsSync(input.txInput)) {
+        input.file = input.txInput;
+      } else {
+        try {
+          var transaction = bitcoin.Transaction.fromHex(input.txInput);
+        } catch (e) {
+          throw new Error("Input was not a valid path or transaction hex");
+        }
+        input.txhex = input.txInput;
+      }
+    }
+
+    if (!(!!input.txhex ^ !!input.file)) {
+      throw new Error('must provide either txhex or file');
+    }
+
+    if (input.file) {
+      var json = fs.readFileSync(input.file);
+      params = JSON.parse(json);
+    } else {
+      params = {};
+      params.tx = input.txhex;
+      return input.getVariable('comment', 'Optional private comment: ')()
+      .then(function() {
+        params.comment = input.comment;
+      })
+    }
+  })
+  .then(function() {
+    return wallet.sendTransaction(params)
+    .catch(function(err) {
+      if (err.needsOTP) {
+        // unlock
+        return self.handleUnlock()
+        .then(function() {
+          // try again
+          return wallet.sendTransaction(params)
+        });
+      } else {
+        throw err;
+      }
+    });
+  })
+  .then(function(tx) {
+    self.action('Sent transaction ' + tx.hash);
+  });
+};
+
 BGCL.prototype.genKey = function() {
   this.addEntropy(128);
   var seedLength = 256 / 32; // 256 bits / 32-bit words
   var seed = sjcl.codec.hex.fromBits(sjcl.random.randomWords(seedLength));
-  var key = new bitgo.BIP32().initFromSeed(seed);
+  var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
   return {
     seed: seed,
-    xpub: key.extended_public_key_string(),
-    xprv: key.extended_private_key_string()
+    xpub: extendedKey.neutered().toBase58(),
+    xprv: extendedKey.toBase58()
   };
 };
 
@@ -1574,7 +1826,7 @@ BGCL.prototype.handleNewWallet = function() {
       self.action('Created user key: ' + keychain.xpub);
     }
     try {
-      userkey = new bitgo.BIP32(input.userkey);
+      userkey = bitcoin.HDNode.fromBase58(input.userkey);
     } catch (e) {
       throw new Error('Invalid BIP32 key');
     }
@@ -1593,7 +1845,7 @@ BGCL.prototype.handleNewWallet = function() {
   .then(function() {
     try {
       if (input.backupkey.substr(0,4) !== 'xpub') { throw new Error(); }
-      backupkey = new bitgo.BIP32(input.backupkey);
+      backupkey = bitcoin.HDNode.fromBase58(input.backupkey);
     } catch (e) {
       throw new Error('Invalid BIP32 xpub for backup key');
     }
@@ -1603,12 +1855,12 @@ BGCL.prototype.handleNewWallet = function() {
   .then(function() {
     // Create user keychain
     userKeychain = {
-      xpub: userkey.extended_public_key_string()
+      xpub: userkey.neutered().toBase58()
     };
-    if (userkey.has_private_key) {
+    if (userkey.neutered().toBase58() === userkey.toBase58()) {
       userKeychain.encryptedXprv = self.bitgo.encrypt({
         password: input.password,
-        input: userkey.extended_private_key_string()
+        input: userkey.toBase58()
       });
       userKeychain.passcodeRecoveryCode = self.getRandomPassword();
     }
@@ -1617,7 +1869,7 @@ BGCL.prototype.handleNewWallet = function() {
   .then(function(keychain) {
     // Create backup keychain
     backupKeychain = {
-      xpub: backupkey.extended_public_key_string()
+      xpub: backupkey.neutered().toBase58()
     };
     return self.bitgo.keychains().add(backupKeychain);
   })
@@ -1675,7 +1927,7 @@ BGCL.prototype.handleNewWallet = function() {
  * @param {Number} nBytes   number of bytes to add
  */
 BGCL.prototype.addEntropy = function(nBytes) {
-  var buf = bitgo.Util.hexToBytes(crypto.randomBytes(nBytes).toString('hex'));
+  var buf = crypto.randomBytes(nBytes).toString('hex');
   // Will throw if the system pool is out of entropy
   sjcl.random.addEntropy(buf, nBytes * 8, "crypto.randomBytes");
 };
@@ -1882,9 +2134,9 @@ BGCL.prototype.handleRecoverKeys = function() {
       } else {
         seed = secrets.combine(shares);
       }
-      var bip32 = new bitgo.BIP32().initFromSeed(seed);
-      var xpub = bip32.extended_public_key_string();
-      var xprv = bip32.extended_private_key_string();
+      var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
+      var xpub = extendedKey.neutered().toBase58();
+      var xprv = extendedKey.toBase58();
       if (xpub !== key.xpub) {
         throw new Error("xpubs don't match for key " + key.index);
       }
@@ -2020,9 +2272,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
     case 'unspents':
     case 'unspent':
       return this.handleUnspents();
-    case 'send':
-    case 'spend':
-      return this.handleSend();
+    case 'sendtoaddress':
+      return this.handleSendCoins();
     case 'newkey':
       return this.handleNewKey();
     case 'splitkeys':
@@ -2037,6 +2288,12 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.runShell();
     case 'help':
       return this.handleHelp();
+    case 'createtx':
+      return this.handleCreateTx();
+    case 'signtx':
+      return this.handleSignTx();
+    case 'sendtx':
+      return this.handleSendTx();
     default:
       throw new Error('unknown command');
   }
@@ -2061,9 +2318,9 @@ BGCL.prototype.run = function() {
   })
   .catch(function(err) {
     self.modifyAuthError(err);
-    console.error(err.message);
-    //console.error();
-    //console.error(err.stack);
+    console.error(err.message || err);
+    // console.error();
+    // console.error(err.stack);
   })
   .done();
 };
