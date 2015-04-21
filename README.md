@@ -32,7 +32,7 @@ Optional arguments:
   -j, --json            output JSON (if available)
 
 subcommands:
-  {login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,send,spend,freezewallet,removewallet,sharewallet,shares,acceptshare,cancelshare,newkey,newwallet,splitkeys,recoverkeys,shell,help}
+  {login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,sendtoaddress,freezewallet,removewallet,sharewallet,shares,acceptshare,cancelshare,newkey,newwallet,splitkeys,recoverkeys,createtx,signtx,sendtx,shell,help}
     login               Sign in to BitGo
     logout              Sign out of BitGo
     token               Get or set the current auth token
@@ -49,13 +49,18 @@ subcommands:
     tx                  List transactions on the current wallet
     unlock              Unlock the session to allow transacting
     lock                Re-lock the session
-    send                Create and send a transaction
+    sendtoaddress       Create and send a transaction
     freezewallet        Freeze (time-lock) the current wallet
     removewallet        Remove a wallet from your account
     newkey              Create a new BIP32 keychain (client-side only)
     newwallet           Create a new Multi-Sig HD wallet
     splitkeys           Create set of BIP32 keys, split into encrypted shares.
     recoverkeys         Recover key(s) from an output file of 'splitkeys'
+    createtx            Create an unsigned transaction (online) for signing
+                        (the signing can be done offline)
+    signtx              Sign a transaction (can be used offline) with an
+                        input transaction JSON file
+    sendtx              Send a transaction for co-signing to BitGo
     shell               Run the BitGo command shell
     help                Display help
 ```
