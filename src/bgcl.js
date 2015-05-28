@@ -499,10 +499,18 @@ BGCL.prototype.createArgumentParser = function() {
   splitKeys.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
   splitKeys.addArgument(['-e', '--entropy'], { help: 'additional user-supplied entropy'});
 
+  var verifySplitKeys = subparsers.addParser('verifysplitkeys', {
+    addHelp: true,
+    help: "Verify xpubs from an output file of 'splitkeys' (does not show xprvs)"
+  });
+  verifySplitKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
+  verifySplitKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
+
   var recoverKeys = subparsers.addParser('recoverkeys', {
     addHelp: true,
-    help: "Recover key(s) from an output file of 'splitkeys'"
+    help: "Recover key(s) from an output file of 'splitkeys' (xprvs are shown)"
   });
+  recoverKeys.addArgument(['-v', '--verifyonly'], {action: 'storeConst', constant: 'true', help: 'verify only (do not show xprvs)'});
   recoverKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
   recoverKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
 
@@ -864,6 +872,7 @@ BGCL.prototype.handleWallet = function() {
   return this.bitgo.wallets().get({id: this.session.wallet.id() })
   .then(function(result) {
     wallet = result;
+    wallet.validateAddress({ address: wallet.wallet.id, path: "/0/0" });
     return wallet.createAddress({allowExisting: '1'});
   })
   .then(function(address) {
@@ -2088,7 +2097,12 @@ BGCL.prototype.handleRecoverKeys = function() {
   };
 
   return Q().then(function() {
-    console.log('Recover Keys');
+    if (self.args.verifyonly) {
+      console.log('Verify Split Keys');
+    } else {
+      console.log('Recover Keys');
+    }
+
     console.log();
   })
   .then(input.getVariable('file', 'Input file (JSON): '))
@@ -2115,7 +2129,7 @@ BGCL.prototype.handleRecoverKeys = function() {
       return indices.indexOf(index) !== -1;
     });
 
-    console.log('Recovering ' + keysToRecover.length + ' keys: ' + indices);
+    console.log('Processing ' + keysToRecover.length + ' keys: ' + indices);
 
     // Get the passwords
     var firstKey = keysToRecover[0];
@@ -2125,7 +2139,8 @@ BGCL.prototype.handleRecoverKeys = function() {
     // For each key we want to recover, decrypt the shares, recombine
     // into a seed, and produce the xprv, validating against existing xpub.
     var recoveredKeys = keysToRecover.map(function(key) {
-      var shares = passwords.map(function(p) {
+      var shares = passwords.map(function(p, i) {
+        console.log('Decrypting Key #' + key.index + ', Part #' + i);
         return sjcl.decrypt(p.password, key.seedShares[p.shareIndex]);
       });
       var seed;
@@ -2136,13 +2151,13 @@ BGCL.prototype.handleRecoverKeys = function() {
       }
       var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
       var xpub = extendedKey.neutered().toBase58();
-      var xprv = extendedKey.toBase58();
-      if (xpub !== key.xpub) {
+      var xprv = self.args.verifyonly ? undefined : extendedKey.toBase58();
+      if (!self.args.verifyonly && xpub !== key.xpub) {
         throw new Error("xpubs don't match for key " + key.index);
       }
       return {
         index: key.index,
-        xpub: key.xpub,
+        xpub: xpub,
         xprv: xprv
       };
     });
@@ -2278,6 +2293,9 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleNewKey();
     case 'splitkeys':
       return this.handleSplitKeys();
+    case 'verifysplitkeys':
+      this.args.verifyonly = true;
+      return this.handleRecoverKeys();
     case 'recoverkeys':
       return this.handleRecoverKeys();
     case 'newwallet':
