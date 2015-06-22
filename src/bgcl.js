@@ -546,6 +546,29 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Run the BitGo command shell'
   });
 
+  // listWebhooks
+  var listWebhooks = subparsers.addParser('listWebhooks', {
+    addHelp: true,
+    help: 'Show webhooks for the current wallet'
+  });
+
+  // addWebhook
+  var addWebhook = subparsers.addParser('addWebhook', {
+    addHelp: true,
+    help: 'Add a webhook for the current wallet'
+  });
+  addWebhook.addArgument(['-u', '--url'], {help: 'URL of new webhook'});
+  addWebhook.addArgument(['-n', '--numConfirmations'], {help: 'Number of confirmations before calling webhook', defaultValue: 0});
+  addWebhook.addArgument(['-t', '--type'], {help: 'Type of webhook: e.g. transaction', defaultValue: 'transaction'});
+
+  // removeWebhook
+  var removeWebhook = subparsers.addParser('removeWebhook', {
+    addHelp: true,
+    help: 'Remove a webhook for the current wallet'
+  });
+  removeWebhook.addArgument(['-u', '--url'], {help: 'URL of webhook to remove'});
+  removeWebhook.addArgument(['-t', '--type'], {help: 'Type of webhook: e.g. transaction', defaultValue: 'transaction'});
+
   // help
   var help = subparsers.addParser('help', {
     addHelp: true,
@@ -2233,6 +2256,85 @@ BGCL.prototype.ensureAuthenticated = function() {
   });
 };
 
+function printWebhookList(webhooks) {
+  var rows = webhooks.map(function(w) {
+    return ' '+
+      _.string.rpad(w.type, 15) +
+      _.string.pad(w.numConfirmations, 18,' ') +
+      '  ' + w.url;
+  });
+  console.log(' ' +
+              _.string.rpad('Type', 15) +
+              _.string.pad('NumConfirmations', 18) +
+              '  URL'
+             );
+  console.log(rows.join('\n'));
+};
+
+BGCL.prototype.handleListWebhooks = function() {
+  var self = this;
+  var wallet = this.session.wallet;
+
+  if (!wallet) {
+    throw new Error('No current wallet.');
+  }
+  this.walletHeader();
+  console.log("\nWebhooks:");
+  wallet.listWebhooks({})
+  .then(function(webhooks) {
+    printWebhookList(webhooks.webhooks);
+  })
+  .catch(function(err){
+    console.error(err);
+  });
+
+};
+
+BGCL.prototype.handleAddWebhook = function() {
+  var self = this;
+  var wallet = this.session.wallet;
+  var input = new UserInput(this.args);
+
+  if (!wallet) {
+    throw new Error('No current wallet.');
+  }
+  this.walletHeader();
+
+  wallet.addWebhook({
+    url: input.url,
+    type: input.type,
+    numConfirmations: input.numConfirmations
+  })
+  .then(function(result){
+    printWebhookList([result]);
+  })
+  .catch(function(err){
+    console.error(err);
+  });
+};
+
+BGCL.prototype.handleRemoveWebhook = function() {
+  var self = this;
+  var wallet = this.session.wallet;
+  var input = new UserInput(this.args);
+
+  if (!wallet) {
+    throw new Error('No current wallet.');
+  }
+  this.walletHeader();
+
+  wallet.removeWebhook({
+    url: input.url,
+    type: input.type
+  })
+  .then(function(result){
+    console.dir(result);
+  })
+  .catch(function(err){
+    console.error(err);
+  });
+};
+
 BGCL.prototype.runCommandHandler = function(cmd) {
   var self = this;
 
@@ -2312,6 +2414,12 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleSignTx();
     case 'sendtx':
       return this.handleSendTx();
+    case 'listWebhooks':
+      return this.handleListWebhooks();
+    case 'addWebhook':
+      return this.handleAddWebhook();
+    case 'removeWebhook':
+      return this.handleRemoveWebhook();
     default:
       throw new Error('unknown command');
   }
