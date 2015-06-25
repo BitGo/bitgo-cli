@@ -2339,6 +2339,7 @@ BGCL.prototype.run = function() {
     console.error(err.message || err);
     // console.error();
     // console.error(err.stack);
+    process.exit(1);
   })
   .done();
 };
