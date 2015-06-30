@@ -514,6 +514,13 @@ BGCL.prototype.createArgumentParser = function() {
   recoverKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
   recoverKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
 
+  var dumpWalletUserKey = subparsers.addParser('dumpwalletuserkey', {
+    addHelp: true,
+    help: "Dumps the user's private key (first key in the 3 multi-sig keys) to the output"
+  });
+  dumpWalletUserKey.addArgument(['-p', '--password'], {help: 'the wallet password'});
+  dumpWalletUserKey.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
+
   var createTx = subparsers.addParser('createtx', {
     addHelp: true,
     help: "Create an unsigned transaction (online) for signing (the signing can be done offline)"
@@ -1002,12 +1009,8 @@ BGCL.prototype.handleSetLabel = function() {
   var address = this.args.address;
   var label = this.args.label;
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function() {
-    if (!self.session.wallet) {
-      throw new Error('No current wallet.');
-    }
-
     return wallet.setLabel({address: address, label: label});
   })
   .then(function(result) {
@@ -1022,11 +1025,8 @@ BGCL.prototype.handleRemoveLabel = function() {
   var wallet = this.session.wallet;
   var address = this.args.address;
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function() {
-    if (!self.session.wallet) {
-      throw new Error('No current wallet.');
-    }
     return wallet.deleteLabel({address: address});
   })
   .then(function(result) {
@@ -1149,7 +1149,8 @@ BGCL.prototype.handleUnspents = function() {
           _.string.lpad(u.confirmations, 4) + '  ' +
           _.string.lpad(self.toBTC(u.value), 11) + '  ' +
           _.string.rpad(u.address, 35) + '  ' +
-          u.tx_hash + ':' + u.tx_output_n
+          u.tx_hash + ':' + u.tx_output_n + ' ' +
+          u.isChange
         );
       }
     });
@@ -1347,7 +1348,7 @@ BGCL.prototype.handleShareWallet = function() {
   var walletId = this.args.wallet || this.session.wallet.id();
   var wallet;
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function() {
     self.info('Share Wallet ' + walletId + ':\n');
     return self.bitgo.wallets().get({ id: walletId });
@@ -1450,11 +1451,8 @@ BGCL.prototype.handleFreezeWallet = function() {
   var self = this;
   var input = new UserInput(this.args);
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function() {
-    if (!self.session.wallet) {
-      throw new Error('No current wallet.');
-    }
     return input.getIntVariable('duration', 'Duration in seconds to freeze: ', true, 1, 1e8)();
   })
   .then(function() {
@@ -1478,7 +1476,7 @@ BGCL.prototype.handleRemoveWallet = function() {
   var input = new UserInput(this.args);
   var walletId = this.args.wallet || this.session.wallet.id();
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function() {
     return input.getVariable('confirm', 'Type \'yes\' to confirm removing wallet ' + walletId + ': ')();
   })
@@ -1498,11 +1496,8 @@ BGCL.prototype.handleSendCoins = function() {
   var input = new UserInput(this.args);
   var satoshis;
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function() {
-    if (!self.session.wallet) {
-      throw new Error('No current wallet.');
-    }
     self.walletHeader();
     console.log();
     self.info('Send Transaction:\n');
@@ -1564,11 +1559,8 @@ BGCL.prototype.handleCreateTx = function() {
   var input = new UserInput(this.args);
   var satoshis;
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function () {
-    if (!self.session.wallet) {
-      throw new Error('No current wallet.');
-    }
     self.walletHeader();
     self.info('Create Unsigned Transaction\n');
   })
@@ -1718,11 +1710,8 @@ BGCL.prototype.handleSendTx = function() {
   var wallet;
   var params;
 
-  return this.ensureAuthenticated()
+  return this.ensureWallet()
   .then(function () {
-    if (!self.session.wallet) {
-      throw new Error('No current wallet.');
-    }
     self.walletHeader();
     self.info('Send Transaction\n');
     return self.bitgo.wallets().get({ id: self.session.wallet.id() });
@@ -2188,6 +2177,45 @@ BGCL.prototype.handleRecoverKeys = function() {
   });
 };
 
+/**
+ * Dumps a user xprv given a wallet and passphrase
+ * @returns {*}
+ */
+BGCL.prototype.handleDumpWalletUserKey = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var params;
+  var wallet;
+
+  return self.ensureWallet()
+  .then(function() {
+    return input.getVariable('password', 'Wallet password: ', true)();
+  })
+  .then(function() {
+    return input.getVariable('confirm', 'Type \'go\' to confirm that you want to dump the wallet private key to output: ')();
+  })
+  .then(function() {
+    if (input.confirm !== 'go') {
+      throw new Error('Operation canceled');
+    }
+    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
+  })
+  .then(function(wallet) {
+    return wallet.getEncryptedUserKeychain();
+  })
+  .then(function(result) {
+    var keychain = result;
+    // Decrypt the user key with a passphrase
+    try {
+      keychain.xprv = self.bitgo.decrypt({password: input.password, input: keychain.encryptedXprv});
+      self.info(keychain.xprv);
+    } catch (e) {
+      throw new Error('Unable to decrypt user keychain');
+    }
+  });
+};
+
+
 BGCL.prototype.handleShellCommand = function() {
   var self = this;
   return this.shell.prompt()
@@ -2247,6 +2275,16 @@ BGCL.prototype.modifyAuthError = function(err) {
     err.message = 'Not logged in';
   }
   return err;
+};
+
+BGCL.prototype.ensureWallet = function() {
+  var self = this;
+  return this.ensureAuthenticated()
+  .then(function() {
+    if (!self.session.wallet) {
+      throw new Error('No current wallet.');
+    }
+  });
 };
 
 BGCL.prototype.ensureAuthenticated = function() {
@@ -2400,6 +2438,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleRecoverKeys();
     case 'recoverkeys':
       return this.handleRecoverKeys();
+    case 'dumpwalletuserkey':
+      return this.handleDumpWalletUserKey();
     case 'newwallet':
       return this.handleNewWallet();
     case 'token':
