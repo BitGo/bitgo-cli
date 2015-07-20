@@ -1,6 +1,6 @@
 {
   "name": "bitgo-cli",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "BitGo command-line interface",
   "main": "src/index.js",
   "bin": {
@@ -24,9 +24,9 @@
   },
   "homepage": "https://github.com/BitGo/bitgo-cli",
   "dependencies": {
-    "argparse": "0.1.16",
+    "argparse": "1.0.2",
     "bitcoinjs-lib": "1.5.4",
-    "bitgo": "0.11.12",
+    "bitgo": "0.11.23",
     "bs58check": "1.0.5",
     "lodash": "2.4.1",
     "moment": "2.9.0",
@@ -34,6 +34,8 @@
     "read": "1.0.5",
     "secrets.js": "0.1.8",
     "sjcl": "1.0.1",
+    "superagent": "1.2.0",
+    "superagent-as-promised": "3.1.1",
     "underscore.string": "2.4.0"
   },
   "preferGlobal": true

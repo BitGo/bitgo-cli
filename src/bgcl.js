@@ -2,6 +2,8 @@
 
 var ArgumentParser = require('argparse').ArgumentParser;
 var bitcoin = require('bitcoinjs-lib');
+var Transaction = require('bitcoinjs-lib/src/transaction');
+var Script = require('bitcoinjs-lib/src/script');
 var bitgo = require('bitgo');
 var bs58check = require('bs58check');
 var crypto = require('crypto');
@@ -16,6 +18,9 @@ var _ = require('lodash');
 _.string = require('underscore.string');
 var pjson = require('../package.json');
 var CLI_VERSION = pjson.version;
+
+var request = require('superagent');
+require('superagent-as-promised')(request);
 
 // Enable for better debugging
 // Q.longStackSupport = true;
@@ -576,6 +581,24 @@ BGCL.prototype.createArgumentParser = function() {
   removeWebhook.addArgument(['-u', '--url'], {help: 'URL of webhook to remove'});
   removeWebhook.addArgument(['-t', '--type'], {help: 'Type of webhook: e.g. transaction', defaultValue: 'transaction'});
 
+  var util = subparsers.addParser('util', {
+    addHelp: true,
+    help: 'Utilities for BitGo wallets'
+  });
+  var utilParser = util.addSubparsers({
+    title: 'Utility commands',
+    dest: 'utilCmd'
+  });
+
+  // recoverLitecoin
+  var recoverLitecoin = utilParser.addParser('recoverlitecoin', {
+    addHelp: true,
+    help: 'Helper tool to craft transaction to recover Litecoin mistakenly sent to BitGo Bitcoin multisig addresses on the Litecoin network'
+  });
+  recoverLitecoin.addArgument(['-i', '--inputaddresses'], {help: 'JSON array of input addresses to obtain litecoin from'});
+  recoverLitecoin.addArgument(['-r', '--recipients'], {help: 'JSON dictionary of recipients in { addr1: satoshis }'});
+  recoverLitecoin.addArgument(['-p', '--prefix'], { help: 'optional output file prefix' });
+
   // help
   var help = subparsers.addParser('help', {
     addHelp: true,
@@ -584,6 +607,15 @@ BGCL.prototype.createArgumentParser = function() {
   help.addArgument(['command'], {nargs: '?'});
 
   return parser;
+};
+
+BGCL.prototype.handleUtil = function() {
+  switch (this.args.utilCmd) {
+    case 'recoverlitecoin':
+      return this.handleRecoverLitecoin();
+    default:
+      throw new Error('unknown command');
+  }
 };
 
 BGCL.prototype.toBTC = function(satoshis, decimals) {
@@ -2373,6 +2405,183 @@ BGCL.prototype.handleRemoveWebhook = function() {
   });
 };
 
+BGCL.prototype.handleRecoverLitecoin = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var inputAddresses;
+  var recipients;
+  var inputAddressInfo;
+  var inputAddressUnspents;
+  var transaction = new Transaction();
+
+  var resultJSON = {
+    inputs: [],
+    tx: '' //hex goes here
+  };
+
+  return this.ensureWallet()
+  .then(function () {
+    self.walletHeader();
+    self.info('Craft a transaction to recover litecoin mistakenly sent to a BitGo Bitcoin multisig addresses on the Litecoin network\n');
+  })
+  .then(input.getVariable('inputaddresses', 'JSON Array of input addresses on the litecoin network, e.g. ["3MJybWMfT5QgxgurpguwmeaeZP2bkSXeVM","3EbzkMxuCKt7HkcyxSdFgtHopWwow1nQni"]: '))
+  .then(input.getVariable('recipients', 'JSON dictionary of recipients in address: amountInBTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }: '))
+  .then(function() {
+    try {
+      inputAddresses = JSON.parse(input.inputaddresses);
+    } catch (e) {
+      throw new Error('Invalid JSON input addresses');
+    }
+    try {
+      recipients = JSON.parse(input.recipients);
+    } catch (e) {
+      throw new Error('Invalid JSON recipients');
+    }
+    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
+  })
+  .then(function(wallet) {
+    var getAddressInfo = function(address) {
+      return wallet.address({'address': address});
+    };
+
+    var getAddressUnspents = function(address) {
+      return request.get("http://api.blockcypher.com/v1/ltc/main/addrs/" + address + "?unspentOnly=true")
+      .then(function(result) {
+        if (!result || !result.body.n_tx) {
+          throw new Error("No unspent txs on litecoin network for " + address);
+        }
+        return { address: address, unspents: result.body.txrefs };
+      })
+    };
+
+    resultJSON.walletId = self.session.wallet.id();
+    resultJSON.bitGoXPub = wallet.keychains[2].xpub;
+
+    self.info('Getting address information on wallet..');
+    return Q.all(inputAddresses.map(getAddressInfo))
+    .then(function(result) {
+      inputAddressInfo = _.indexBy(result, 'address');
+      self.info('Getting unspents from litecoin network..');
+      return Q.all(inputAddresses.map(getAddressUnspents));
+    })
+    .then(function(result) {
+      inputAddressUnspents = _.indexBy(result, 'address');
+      var totalInputAmount = 0;
+
+      // Build inputs and result json
+      self.info("");
+      self.info("Building inputs.. ");
+      inputAddresses.map(function(address) {
+        var totalThisAddress = 0;
+        var addInputFromUnspent = function(unspent) {
+          var redeemScript = inputAddressInfo[address].redeemScript;
+          var amount = unspent.value;
+
+          totalThisAddress += amount;
+          totalInputAmount += amount;
+
+          self.info("Address: " + address + " TxId: " + unspent.tx_hash + " Amount " + self.toBTC(amount) + " LTC");
+
+          // Add to result json inputs list
+          resultJSON.inputs.push({
+            redeemScript: redeemScript,
+            path: '/0/0' + inputAddressInfo[address].path,
+            chainPath: inputAddressInfo[address].path,
+            txHash: unspent.tx_hash,
+            txOutputN: unspent.tx_output_n,
+            txValue: amount
+          });
+
+          // Actually add to transaction as input
+          var hash = new Buffer(unspent.tx_hash, 'hex');
+          hash = new Buffer(Array.prototype.reverse.call(hash));
+          var script = Script.fromHex(redeemScript);
+          transaction.addInput(hash, unspent.tx_output_n, 0xffffffff, script);
+        };
+
+        _.each(inputAddressUnspents[address].unspents, addInputFromUnspent);
+        self.info("Total in " + address + " " + self.toBTC(totalThisAddress) + " LTC");
+        self.info("====");
+      });
+
+      self.info("Total input amount: " + self.toBTC(totalInputAmount) + " LTC");
+      self.info("====");
+
+      return totalInputAmount;
+    })
+    .then(function(totalInputAmount) {
+      var totalOutputAmount = 0;
+      self.info("");
+      self.info("Building outputs.. ");
+
+      var addRecipientOutput = function (address) {
+        var amount = Math.floor(Number(recipients[address]) * 1e8);
+        if (isNaN(amount)) {
+          throw new Error('Invalid amount (non-numeric)');
+        }
+        totalOutputAmount += amount;
+        transaction.addOutput(address, amount);
+        self.info("Address: " + address + " Amount: " + self.toBTC(amount) + " LTC");
+      };
+
+      _.each(_.keys(recipients), addRecipientOutput);
+      self.info("Total recover amount: " + self.toBTC(totalOutputAmount) + " LTC");
+      self.info("====");
+
+      var fee = totalInputAmount - totalOutputAmount;
+      if (fee < 0) {
+        throw new Error("Insufficient input amount to pay recipients provided!");
+      }
+
+      self.info("Total fee amount: " + self.toBTC(fee) + " LTC");
+
+      if (fee > 0.1 * 1e8) {
+        throw new Error("The fee is too high, aborting for safety!");
+      }
+      if (fee < 0.0001 * 1e8) {
+        throw new Error("The fee is too low - minimum fee is 0.001 coins.");
+      }
+
+      self.info("=====");
+      self.info("");
+      self.info("This tool will attempt to create a Litecoin transaction and half-sign it. ");
+      self.info("You must take responsibility to verify the transaction independently. ");
+      return input.getVariable('password', 'Type wallet password if you agree: ', true)();
+    })
+    .then(function() {
+      return wallet.getEncryptedUserKeychain();
+    })
+    .then(function(result) {
+      var keychain = result;
+      // Decrypt the user key with a passphrase
+      try {
+        keychain.xprv = self.bitgo.decrypt({password: input.password, input: keychain.encryptedXprv});
+      } catch (e) {
+        throw new Error('Unable to decrypt user keychain');
+      }
+
+      self.info("Successfully decrypted user key on local machine..");
+
+      return wallet.signTransaction({
+        unspents: resultJSON.inputs,
+        transactionHex: transaction.toHex(),
+        keychain: keychain
+      });
+    })
+    .then(function(result) {
+      resultJSON.tx = result.tx;
+      self.info('Signed transaction. ');
+      if (!input.prefix) {
+        // if output prefix not provided, use the input file
+        input.prefix = 'ltcrecovery_' + moment().format('YYYYMDHm');
+      }
+      var filename = input.prefix + '.signed.json';
+      fs.writeFileSync(filename, JSON.stringify(resultJSON, null, 2));
+      self.info('Wrote ' + filename);
+    });
+  });
+};
+
 BGCL.prototype.runCommandHandler = function(cmd) {
   var self = this;
 
@@ -2460,6 +2669,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleAddWebhook();
     case 'removeWebhook':
       return this.handleRemoveWebhook();
+    case 'util':
+      return this.handleUtil();
     default:
       throw new Error('unknown command');
   }
