@@ -2444,13 +2444,18 @@ BGCL.prototype.handleRecoverLitecoin = function() {
       return wallet.address({'address': address});
     };
 
-    var getAddressUnspents = function(address) {
-      return request.get("http://api.blockcypher.com/v1/ltc/main/addrs/" + address + "?unspentOnly=true")
+    var getUnspentsForAddresses = function(inputAddresses) {
+      var url = "http://ltc.blockr.io/api/v1/address/unspent/" + inputAddresses.join(",");
+      return request.get(url)
       .then(function(result) {
-        if (!result || !result.body.n_tx) {
-          throw new Error("No unspent txs on litecoin network for " + address);
-        }
-        return { address: address, unspents: result.body.txrefs };
+        var resultsByAddress = _.indexBy(result.body.data, 'address');
+        var results = inputAddresses.map(function(address) {
+          if (!resultsByAddress[address]) {
+            throw new Error("No unspent txs on litecoin network for " + address);
+          }
+          return { address: address, unspents: resultsByAddress[address].unspent };
+        });
+        return results;
       })
     };
 
@@ -2462,7 +2467,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
     .then(function(result) {
       inputAddressInfo = _.indexBy(result, 'address');
       self.info('Getting unspents from litecoin network..');
-      return Q.all(inputAddresses.map(getAddressUnspents));
+      return getUnspentsForAddresses(inputAddresses);
     })
     .then(function(result) {
       inputAddressUnspents = _.indexBy(result, 'address');
@@ -2475,28 +2480,28 @@ BGCL.prototype.handleRecoverLitecoin = function() {
         var totalThisAddress = 0;
         var addInputFromUnspent = function(unspent) {
           var redeemScript = inputAddressInfo[address].redeemScript;
-          var amount = unspent.value;
+          var amount = Math.round(parseFloat(unspent.amount) * 1e8);
 
           totalThisAddress += amount;
           totalInputAmount += amount;
 
-          self.info("Address: " + address + " TxId: " + unspent.tx_hash + " Amount " + self.toBTC(amount) + " LTC");
+          self.info("Address: " + address + " TxId: " + unspent.tx + " Amount " + self.toBTC(amount) + " LTC");
 
           // Add to result json inputs list
           resultJSON.inputs.push({
             redeemScript: redeemScript,
             path: '/0/0' + inputAddressInfo[address].path,
             chainPath: inputAddressInfo[address].path,
-            txHash: unspent.tx_hash,
-            txOutputN: unspent.tx_output_n,
+            txHash: unspent.tx,
+            txOutputN: unspent.n,
             txValue: amount
           });
 
           // Actually add to transaction as input
-          var hash = new Buffer(unspent.tx_hash, 'hex');
+          var hash = new Buffer(unspent.tx, 'hex');
           hash = new Buffer(Array.prototype.reverse.call(hash));
           var script = Script.fromHex(redeemScript);
-          transaction.addInput(hash, unspent.tx_output_n, 0xffffffff, script);
+          transaction.addInput(hash, unspent.n, 0xffffffff, script);
         };
 
         _.each(inputAddressUnspents[address].unspents, addInputFromUnspent);
