@@ -2449,6 +2449,11 @@ BGCL.prototype.handleRecoverLitecoin = function() {
       return request.get(url)
       .then(function(result) {
         var resultsByAddress = _.indexBy(result.body.data, 'address');
+        if (result.body.data.address) {
+          // there was only 1 result, which got returned as a single object instead of array.
+          resultsByAddress = {};
+          resultsByAddress[result.body.data.address] = result.body.data;
+        }
         var results = inputAddresses.map(function(address) {
           if (!resultsByAddress[address]) {
             throw new Error("No unspent txs on litecoin network for " + address);
