@@ -1,3 +1,6 @@
 node_modules
 .idea/*
 *.signed.json
+
+# pesky OSX file
+.DS_STORE

@@ -17,10 +17,9 @@ Running **bitgo -h** will produce usage information.
 
 ```
 $ bitgo -h
-usage: bitgo [-h] [-v] [-t]
+usage: bitgo [-h] [-v] [-e] [-j]
 
-             {login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,sendtoaddress,freezewallet,removewallet,sharewallet,shares,acceptshare,cancelshare,newkey,newwallet,splitkeys,recoverkeys,createtx,signtx,sendtx,shell,help}
-             ...
+
 
 BitGo Command-Line
 
@@ -32,7 +31,8 @@ Optional arguments:
   -j, --json            output JSON (if available)
 
 subcommands:
-  {login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,unspents,unspent,tx,unlock,lock,sendtoaddress,freezewallet,removewallet,sharewallet,shares,acceptshare,cancelshare,newkey,newwallet,splitkeys,recoverkeys,createtx,signtx,sendtx,shell,help}
+{login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,tx,unlock,lock,sharewallet,shares,acceptshare,cancelshare,freezewallet,removewallet,unspents,unspent,sendtoaddress,newkey,splitkeys,verifysplitkeys,recoverkeys,dumpwalletuserkey,newwallet,shell,help,createtx,signtx,sendtx,listWebhooks,addWebhook,removeWebhook,util}
+
     login               Sign in to BitGo
     logout              Sign out of BitGo
     token               Get or set the current auth token
@@ -45,24 +45,36 @@ subcommands:
     removelabel         Remove a label on an address (in curr. wallet context)
     addresses           List addresses for the current wallet
     newaddress          Create a new receive address for the current wallet
-    unspents            Show unspents in the wallet
     tx                  List transactions on the current wallet
     unlock              Unlock the session to allow transacting
     lock                Re-lock the session
-    sendtoaddress       Create and send a transaction
+    sharewallet         Share the current wallet with another user
+    shares              List outstanding wallet shares (incoming and outgoing)
+    acceptshare         Accept a wallet share invite
+    cancelshare         Cancel or decline a wallet share invite
     freezewallet        Freeze (time-lock) the current wallet
     removewallet        Remove a wallet from your account
+    unspents            Show unspents in the wallet
+    unspent             Same as above command
+    sendtoaddress       Create and send a transaction
     newkey              Create a new BIP32 keychain (client-side only)
-    newwallet           Create a new Multi-Sig HD wallet
     splitkeys           Create set of BIP32 keys, split into encrypted shares.
+    verifysplitkeys     Verify the public keys contained in the output file
+                        from the splitkeys command
     recoverkeys         Recover key(s) from an output file of 'splitkeys'
+    dumpwalletuserkey   Dumps a user xprv given a wallet and passphrase
+    newwallet           Create a new Multi-Sig HD wallet
+    shell               Run the BitGo command shell
+    help                Display help
     createtx            Create an unsigned transaction (online) for signing
                         (the signing can be done offline)
     signtx              Sign a transaction (can be used offline) with an
                         input transaction JSON file
     sendtx              Send a transaction for co-signing to BitGo
-    shell               Run the BitGo command shell
-    help                Display help
+    listWebhooks        Show webhooks for the current wallet
+    addWebhook          Add a webhook for the current wallet
+    removeWebhook       Remove a webhook for the current wallet
+    util                Utility commands
 ```
 
 # Testnet
@@ -124,7 +136,7 @@ bab7b73dec9501b8b210ec8d68e1ac26a88b7b8c3c4f6811935d793d627c7d54
 ```
 Set the current auth token; this is an alternate way of changing sessions, or can be used to install a long-lived API token provided by BitGo:
 ```
-$ bitgo -t token 24b7b73dec9501b8b210ec8d68e1ac26a88b7b8c3c4f6811935d793d627c7d54
+$ bitgo token 24b7b73dec9501b8b210ec8d68e1ac26a88b7b8c3c4f6811935d793d627c7d54
 *** Logged in as user@domain.com
 ```
 
@@ -197,14 +209,6 @@ $ bitgo newaddress          # get a new receive address
 $ bitgo newaddress -c       # get a new change <address>
 $ bitgo newaddress -l "foo" # get a new receive address labeled "foo"
 ```
-
-## unspents
-Show a list of unspents on the current wallet, optionally filtering by minimum confirms.
-```
-$ bitgo unspents            # show all unspents
-$ bitgo unspents -c 6       # show unspents with at least 6 confirms
-```
-
 ## tx
 List transactions on the current wallet.
 ```
@@ -228,23 +232,48 @@ Explicitly lock the session, preventing further transactions from taking place.
 $ bitgo lock
 *** Locked session
 ```
-
-## sendtoaddress
-Send a transaction. This command provides a guided flow, but the needed info may also be provided on the command line.
+## sharewallet
+Share the current wallet with a user by giving them share, spend, or admin priviliges on the wallet. If no
+wallet is specified, it will use the current wallet. You must have admin status on the wallet to use this command.
 ```
-$ bitgo -e test send
-Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
-Send Transaction:
+$ bitgo sharewallet 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+Share Wallet 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao:
 
-Destination address: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
-Amount (in BTC): 0.5
-Wallet passcode: ********************
-Optional comment: paying Mike for lunch
-Please confirm sending BTC 0.5000 + 0.0001 blockchain fee to 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
-Type 'go' to confirm: go
+Email address of recipient: user@domain.com
+Role ( [a]dmin | [s]pender | [v]iewer ): s
+Optional comment for recipient: Spend limit is 100 BTC
+Wallet password: *******
 2-step Verification Code: 0000000
-*** Unlocked session
-*** Sent transaction 9ef2042647ceb0b1ec8f18733ab46d11c330b4449549fe37a9c559e170806d0e
+*** Wallet share created (id=55cd2f4cf1f414280c2c926af4c47874)
+```
+
+## shares
+Lists outstanding wallet shares (incoming and outgoing)
+
+```
+$ bitgo shares
+
+Outgoing Shares:
+  ID                                Role     To                  Wallet              Message
+  55cd2f4cf1f414280c2c926af4c47874  spender   user@domain.com       0                   Spend limit is 100 BTC
+```
+
+## acceptshare
+Accept a wallet share invite
+
+```
+$ bitgo acceptshare 47874c4fa629c2c082414f1fc4f2dc55
+BitGo Password: ********
+
+wallet share accepted
+```
+
+## cancelshare
+Cancel or decline a wallet share invite
+
+```
+$ bitgo cancelshare 47874c4fa629c2c082414f1fc4f2dc55
+*** Wallet share canceled
 ```
 
 ## freezewallet
@@ -271,6 +300,34 @@ Type 'yes' to confirm removing wallet 2MzoQpTopwMD7dfufGeHHvZYfEDrMdxibTM: yes
 *** Removed wallet 2MzoQpTopwMD7dfufGeHHvZYfEDrMdxibTM
 ```
 
+## unspents
+Show a list of unspents on the current wallet, optionally filtering by minimum confirms.
+```
+$ bitgo unspents            # show all unspents
+$ bitgo unspents -c 6       # show unspents with at least 6 confirms
+```
+
+## unspent
+Same command as above
+
+## sendtoaddress
+Send a transaction. This command provides a guided flow, but the needed info may also be provided on the command line.
+```
+$ bitgo -e test send
+Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
+Send Transaction:
+
+Destination address: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+Amount (in BTC): 0.5
+Wallet passcode: ********************
+Optional comment: paying Mike for lunch
+Please confirm sending BTC 0.5000 + 0.0001 blockchain fee to 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+Type 'go' to confirm: go
+2-step Verification Code: 0000000
+*** Unlocked session
+*** Sent transaction 9ef2042647ceb0b1ec8f18733ab46d11c330b4449549fe37a9c559e170806d0e
+```
+
 ## newkey
 Create a new BIP32 root key. This is a client-side only operation. It does not require the user to be authenticated with BitGo, and does not contact the BitGo server.  Additional entropy may be provided on the command line.
 ```
@@ -282,13 +339,86 @@ $ bitgo -j newkey
 }
 ```
 
+## splitkeys
+This is a client-side utility command which assists in generating a batch of BIP32 keys which are split
+using Shamir Secret Sharing, and have the shares encrypted with separate passwords (each
+known by a separate person, generally).  It provides a guided flow, as well as command-line args.
+```
+$ splitkeys -h
+usage: bitgo splitkeys [-h] [-m M] [-n N] [-N NKEYS] [-p PREFIX] [-e ENTROPY]
+
+Optional arguments:
+  -h, --help            Show this help message and exit.
+  -m M                  number of shares required to reconstruct a key
+  -n N                  total number of shares per key
+  -N NKEYS, --nkeys NKEYS
+                        total number of keys to generate
+  -p PREFIX, --prefix PREFIX
+                        output file prefix
+  -e ENTROPY, --entropy ENTROPY
+                        additional user-supplied entropy
+```
+
+## verifysplitkeys
+Verifies the xpubs generated by the splitkeys command. This command is useful for verifying
+that the shares contained in the input JSON file correspond to the xpub(s) listed in the JSON file
+```
+$ bitgo verifysplitkeys
+Verify Split Keys
+
+Input file (JSON): keys.json
+Comma-separated list of key indices to recover: 0,1
+Processing 2 keys: 0,1
+Password 0: *********
+
+Password 1: ***********
+
+Decrypting Key #0, Part #0
+Decrypting Key #0, Part #1
+Decrypting Key #1, Part #0
+Decrypting Key #1, Part #1
+[
+  {
+    "index": 0,
+    "xpub": "xpub661MyMwAqRbcF2CSKyTp1Xv9gSBvkdVQsPh5NwSRaErAXVWhtfYBZeuZxVJA8fayUJoPa4rtMZAWUzVG5XESKvCqTvvED5gErrZuxsyDPrP"
+  },
+  {
+    "index": 1,
+    "xpub": "xpub661MyMwAqRbcGrqGfmNuJK41iS4kETkofD6mnNT1CMGcuoeJCvWjNtwzgqfSqXsUYUC7NJWTgnrtxHmy93xGTDe7ZbfXbtgxa9LpD7yD5NQ"
+  }
+]
+```
+
+## recoverkeys
+A client-side utility for recovering keys generated by splitkeys.
+```
+$ bitgo recoverkeys -h
+usage: bitgo recoverkeys [-h] [-f FILE] [-k KEYS]
+
+Optional arguments:
+  -h, --help            Show this help message and exit.
+  -f FILE, --file FILE  the input file (JSON format)
+  -k KEYS, --keys KEYS  comma-separated list of key indices to recover
+```
+
+## dumpwalletuserkey
+Print a wallet's xprv, which is decrypted using the passphrase. If the wallet's encrypted keychain
+is not stored by BitGo, there will be no xprv to print.
+```
+$ bitgo dumpwalletuserkey
+Wallet password: ********
+
+Type 'go' to confirm that you want to dump the wallet private key to output: go
+xprv9s21ZrQH143K4CD2eRTRFO5Uq8dtjTm9mmNvADopmCRNcRjnELpSZ1C3GZJLNa9YbuLaUPWQMM6fQD5jrKxZ3mFsomcvbsyw9Poq8WVcqXw
+```
+
 ## newwallet
 Create a new BitGo HD 2-of-3 Multi-sig wallet. This is a guided flow with instructions. You will need to provide 1 xprv and 1 xpub, or 2 xpubs in order to create the wallet.
 
 **Please be aware that creating a wallet in this manner does not produce a recovery KeyCard. You are fully responsible for backing up your keys. If you lose access to your keys and passcode, BitGo cannot help you recover your funds.**
 
 ```
-$ bitgo -t newwallet
+$ bitgo newwallet
 Current User: ben+0@bitgo.com
 Create New Wallet undefined
 
@@ -312,43 +442,14 @@ Enter BitGo password: ********************
 ## shell
 Launch the BitGo shell, which simply allows you to run commands without prefixing them with **bitgo**. No other shell functionality is provided. Use Ctrl-C or Ctrl-D to exit.
 ```
-bitgo -t shell
+bitgo shell
 [bitgo @ My Cool Wallet]Ƀ status
 ```
 
-## splitkeys
-This is a client-side utility command which assists in generating a batch of BIP32 keys which are split
-using Shamir Secret Sharing, and have the shares encrypted with separate passwords (each
-known by a separate person, generally).  It provides a guided flow, as well as command-line args.
-```
-$ splitkeys -h
-usage: bitgo splitkeys [-h] [-m M] [-n N] [-N NKEYS] [-p PREFIX] [-e ENTROPY]
+## help
+Prints all of the commands and subcommands that bitgo-cli responds to, along with short explanations of each command
 
-Optional arguments:
-  -h, --help            Show this help message and exit.
-  -m M                  number of shares required to reconstruct a key
-  -n N                  total number of shares per key
-  -N NKEYS, --nkeys NKEYS
-                        total number of keys to generate
-  -p PREFIX, --prefix PREFIX
-                        output file prefix
-  -e ENTROPY, --entropy ENTROPY
-                        additional user-supplied entropy
-```
-
-# recoverkeys
-A client-side utility for recovering keys generated by splitkeys.
-```
-$ bitgo recoverkeys -h
-usage: bitgo recoverkeys [-h] [-f FILE] [-k KEYS]
-
-Optional arguments:
-  -h, --help            Show this help message and exit.
-  -f FILE, --file FILE  the input file (JSON format)
-  -k KEYS, --keys KEYS  comma-separated list of key indices to recover
-```
-
-# createtx
+## createtx
 Creates an unsigned transaction and saves it to a JSON file. This file can then be brought to an offline machine for signing using signtx.
 
 ```
@@ -381,7 +482,7 @@ Created unsigned transaction for 0.3000 BTC + 0.001 BTC blockchain fee to 2MzoQp
 Wrote tx20154211455.json
 ```
 
-# signtx
+## signtx
 Signs an unsigned transcation (using JSON file from createtx). Can be performed offline. 
 
 ```
@@ -408,7 +509,7 @@ Signed transaction using the key provided.
 Wrote tx20154211455.signed.json
 ```
 
-# sendtx
+## sendtx
 Sends a half-signed transaction on a wallet to BitGo for co-signing and propogation to the Bitcoin network. 
 Takes input from a filename (JSON constructed by signtx) or a pure transaction hex. 
 
@@ -433,3 +534,50 @@ Transaction (hex or file): tx20154211455.signed.json
 
 *** Sent transaction 0c41cef5a1b89c3f9387440169b38fb2465b30e0d23c92368f82c8f571182e03
 ```
+
+## listWebhooks
+Lists the webhooks for the current wallet
+```
+$ bitgo listWebhooks
+Current wallet: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+
+Webhooks:
+ Type             NumConfirmations  URL
+ transaction                     3  http://www.yoursite.com/partner/webhooks
+```
+
+## addWebhooks
+Adds a webhook to the current wallet.
+```
+$ bitgo -u http://www.yoursite.com/partner/webhooks -n 3 -t transaction
+Current wallet: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+
+Webhooks:
+ Type             NumConfirmations  URL
+ transaction                     3  http://www.yoursite.com/partner/webhooks
+ ```
+
+ ## removeWebhook
+ Removes a webhook from the current wallet.
+ ```
+ $ bitgo removeWebhook -u http://www.yoursite.com/partner/webhooks -t transaction
+ Current wallet: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+ { removed: 1 }
+ ```
+
+ ## utils
+ Miscellaneous utility commands
+ ```
+ $ bitgo utils -h
+ usage: bitgo util [-h] {recoverlitecoin} ...
+
+ Optional arguments:
+   -h, --help         Show this help message and exit.
+
+ Utility commands:
+   {recoverlitecoin}
+     recoverlitecoin  Helper tool to craft transaction to recover Litecoin
+                      mistakenly sent to BitGo Bitcoin multisig addresses on
+                      the Litecoin network
+ ```
+
