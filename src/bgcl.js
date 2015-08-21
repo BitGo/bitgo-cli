@@ -162,6 +162,7 @@ UserInput.prototype.getPassword = function(name, question, confirm) {
   };
 };
 
+
 UserInput.prototype.getIntVariable = function(name, question, required, min, max) {
   var self = this;
   return function() {
@@ -655,6 +656,25 @@ BGCL.prototype.action = function(line) {
   console.log();
 };
 
+// Check if current session is using a long lived token and warn user if true
+// Used to prevent a user from changing or possibly invalidating (in the case
+// of a call to logout) the long-lived token.
+BGCL.prototype.checkAndWarnOfLongLivedTokenChange = function(input, warning) {
+  return this.bitgo.session()
+  .then(function(res) {
+    if (_.contains(_.keys(res), 'label')) {
+      console.log(warning);
+      return input.getVariable('confirm', 'Type \'go\' to confirm: ')();
+    }
+  })
+  .then(function() {
+    if (input.confirm !== 'go') {
+      throw new Error('cancelling method call');
+    }
+  });
+};
+
+
 BGCL.prototype.header = function(line) {
   return line; // '> ' + line; // + ' ]';
 };
@@ -784,7 +804,12 @@ BGCL.prototype.handleLogin = function() {
 
 BGCL.prototype.handleLogout = function() {
   var self = this;
-  return this.bitgo.logout()
+  var input = new UserInput(this.args);
+  return this.checkAndWarnOfLongLivedTokenChange(input, "About to logout of a session with a longed-lived access token!\n" +
+    "This will invalidate the long-lived access token, making it unusable in the future\n")
+  .then(function() {
+    return self.bitgo.logout()
+  })
   .then(function() {
     self.action('Logged out');
   });
@@ -1289,7 +1314,11 @@ BGCL.prototype.handleTxList = function() {
 BGCL.prototype.handleUnlock = function() {
   var self = this;
   var input = new UserInput(this.args);
-  return Q()
+  return this.checkAndWarnOfLongLivedTokenChange(input, "About to unlock a longed-lived access token!\n" +
+    "This will also unlock the token for any other users who have access to it\n")
+  .then(function() {
+    return Q()
+  })
   .then(function() {
     if (!input.otp) {
       // this triggers a push
@@ -1308,7 +1337,11 @@ BGCL.prototype.handleUnlock = function() {
 BGCL.prototype.handleLock = function() {
   var self = this;
   var input = new UserInput(this.args);
-  return self.bitgo.lock()
+  return this.checkAndWarnOfLongLivedTokenChange(input, "About to lock a longed-lived access token!\n" +
+    "This will also lock the token for any other users who have access to it\n")
+  .then(function() {
+    return self.bitgo.lock();
+  })
   .then(function() {
     self.action('Locked session');
   });
