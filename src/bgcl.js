@@ -2446,6 +2446,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
   var inputAddressInfo;
   var inputAddressUnspents;
   var transaction = new Transaction();
+  var keychain;
 
   var resultJSON = {
     inputs: [],
@@ -2589,22 +2590,42 @@ BGCL.prototype.handleRecoverLitecoin = function() {
       self.info("");
       self.info("This tool will attempt to create a Litecoin transaction and half-sign it. ");
       self.info("You must take responsibility to verify the transaction independently. ");
-      return input.getVariable('password', 'Type wallet password if you agree: ', true)();
     })
     .then(function() {
-      return wallet.getEncryptedUserKeychain();
+      return wallet.getEncryptedUserKeychain()
+      .catch(function(error) {
+        // handle case where there are no encrypted keychains by allowing the user to specify them on the command lines
+        if (!_.contains(error.message, 'No encrypted keychains')) {
+          throw error;
+        }
+        return input.getVariable('key', 'Type user xprv if you agree: ', true)()
+        .then(function() {
+          var hdNode = bitcoin.HDNode.fromBase58(input.key);
+          keychain = {
+            xpub: hdNode.neutered().toBase58(),
+            xprv: hdNode.toBase58(),
+            path: 'm'
+          };
+          return;
+        });
+      })
+      .then(function(result) {
+        if (!result) {
+          return; // If there was no result, then we expect there to be a keychain already
+        }
+        keychain = result;
+        return input.getVariable('password', 'Type wallet password if you agree: ', true)()
+        .then(function() {
+          try {
+            keychain.xprv = self.bitgo.decrypt({password: input.password, input: keychain.encryptedXprv});
+            self.info("Successfully decrypted user key on local machine..");
+          } catch (e) {
+            throw new Error('Unable to decrypt user keychain');
+          }
+        });
+      });
     })
-    .then(function(result) {
-      var keychain = result;
-      // Decrypt the user key with a passphrase
-      try {
-        keychain.xprv = self.bitgo.decrypt({password: input.password, input: keychain.encryptedXprv});
-      } catch (e) {
-        throw new Error('Unable to decrypt user keychain');
-      }
-
-      self.info("Successfully decrypted user key on local machine..");
-
+    .then(function() {
       return wallet.signTransaction({
         unspents: resultJSON.inputs,
         transactionHex: transaction.toHex(),
