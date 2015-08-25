@@ -664,12 +664,12 @@ BGCL.prototype.checkAndWarnOfLongLivedTokenChange = function(input, warning) {
   .then(function(res) {
     if (_.contains(_.keys(res), 'label')) {
       console.log(warning);
-      return input.getVariable('confirm', 'Type \'go\' to confirm: ')();
-    }
-  })
-  .then(function() {
-    if (input.confirm !== 'go') {
-      throw new Error('cancelling method call');
+      return input.getVariable('confirm', 'Type \'go\' to confirm: ')()
+      .then(function() {
+        if (input.confirm !== 'go') {
+          throw new Error('cancelling method call');
+        }
+      });
     }
   });
 };
