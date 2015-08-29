@@ -1,6 +1,6 @@
 {
   "name": "bitgo-cli",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "BitGo command-line interface",
   "main": "src/index.js",
   "bin": {
@@ -30,7 +30,9 @@
     "bs58check": "1.0.5",
     "lodash": "2.4.1",
     "moment": "2.9.0",
+    "open": "0.0.5",
     "q": "1.1.2",
+    "qr-image": "^3.1.0",
     "read": "1.0.5",
     "secrets.js": "0.1.8",
     "sjcl": "1.0.1",

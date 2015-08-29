@@ -14,6 +14,9 @@ var read = require('read');
 var readline = require('readline');
 var secrets = require('secrets.js');
 var sjcl = require('sjcl');
+var qr = require('qr-image');
+var open = require('open');
+var util = require('util');
 var _ = require('lodash');
 _.string = require('underscore.string');
 var pjson = require('../package.json');
@@ -328,6 +331,26 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Show current status'
   });
 
+  /**
+   * OTP Commands
+   */
+  var otp = subparsers.addParser('otp', { help: 'OTP commands (use otp -h to see commands)' });
+  var otpCommands = otp.addSubparsers({
+    title:'otp commands',
+    dest:"cmd2",
+  });
+
+  // otp list
+  var otpList = otpCommands.addParser('list', { help: 'List OTP methods' });
+
+  // otp remove
+  var otpRemove = otpCommands.addParser('remove', { help: 'Remove OTP device' });
+  otpRemove.addArgument(['deviceId'], { help: 'the device id to remove' });
+
+  // otp add
+  var otpAdd = otpCommands.addParser('add', { help: 'Add an OTP device' });
+  otpAdd.addArgument(['type'], { choices: ['totp', 'yubikey', 'authy'], help: 'Type of device to add' });
+
   // wallets
   var wallets = subparsers.addParser('wallets', {
     addHelp: true,
@@ -619,6 +642,26 @@ BGCL.prototype.handleUtil = function() {
   }
 };
 
+BGCL.prototype.doPost = function(url, data, field) {
+  data = data || {};
+  return this.bitgo.post(this.bitgo.url(url)).send(data).result(field);
+};
+
+BGCL.prototype.doPut = function(url, data, field) {
+  data = data || {};
+  return this.bitgo.put(this.bitgo.url(url)).send(data).result(field);
+};
+
+BGCL.prototype.doGet = function(url, data, field) {
+  data = data || {};
+  return this.bitgo.get(this.bitgo.url(url)).query(data).result(field);
+};
+
+BGCL.prototype.doDelete = function(url, data, field) {
+  data = data || {};
+  return this.bitgo.del(this.bitgo.url(url)).send(data).result(field);
+};
+
 BGCL.prototype.toBTC = function(satoshis, decimals) {
   if (satoshis === 0) {
     return '0';
@@ -845,6 +888,111 @@ BGCL.prototype.handleStatus = function() {
       self.walletHeader();
     });
   });
+};
+
+BGCL.prototype.handleOTPList = function() {
+  var self = this;
+
+  return this.bitgo.me()
+  .then(function(user) {
+    // JSON output
+    if (self.args.json) {
+      return self.printJSON(user.otpDevices);
+    }
+
+    // normal output
+    self.info(_.string.rpad('ID', 34) + _.string.rpad('Type', 10) + 'Label');
+    user.otpDevices.forEach(function(device) {
+      self.info(_.string.rpad(device.id, 34) + _.string.rpad(device.type, 10) + device.label);
+    });
+  });
+};
+
+BGCL.prototype.handleOTPRemove = function() {
+  var self = this;
+  var deviceId = this.args.deviceId;
+  return this.retryForUnlock(function() {
+    return self.doDelete('/user/otp/' + deviceId)
+    .then(function() {
+      self.info('Removed');
+    });
+  });
+};
+
+BGCL.prototype.handleOTPAddYubikey = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  return Q()
+  .then(input.getVariable('otp', 'Enter Yubikey OTP: ', true))
+  .then(input.getVariable('label', 'Label (optional): '))
+  .then(function() {
+    return self.retryForUnlock(function() {
+      return self.doPut('/user/otp', { type: 'yubikey', otp: input.otp, label: input.label || undefined });
+    });
+  })
+  .then(function() {
+    self.info('Added');
+  });
+};
+
+BGCL.prototype.handleOTPAddTOTP = function() {
+  var self = this;
+  var key;
+  var input = new UserInput(this.args);
+  var svgFile = BITGO_DIR + '/totp.svg';
+  var htmlFile = BITGO_DIR + '/totp.html';
+
+  return this.doGet('/user/otp/totp', {})
+  .then(function(res) {
+    key = res;
+    fs.writeFileSync(svgFile, qr.imageSync(key.url, { type: 'svg' }));
+    fs.writeFileSync(htmlFile, '<center><img src="totp.svg" width=256 height=256><h2 style="font-family:Helvetica">Scan with Google Authenticator</h2></center>');
+    open(htmlFile);
+  })
+  .then(input.getVariable('otp', 'Scan QR Code in browser and enter numeric code: ', true))
+  .then(input.getVariable('label', 'Label (optional): '))
+  .then(function() {
+    fs.unlinkSync(svgFile);
+    fs.unlinkSync(htmlFile);
+    return self.retryForUnlock(function() {
+      var params = {
+        type: 'totp',
+        key: key.key,
+        hmac: key.hmac,
+        otp: input.otp,
+        label: input.label || undefined
+      };
+      return self.doPut('/user/otp', params);
+    });
+  })
+  .then(function() {
+    self.info('Added');
+  });
+};
+
+BGCL.prototype.handleOTPAdd = function() {
+  var type = this.args.type;
+  switch(type) {
+    case 'yubikey':
+      return this.handleOTPAddYubikey();
+    case 'totp':
+      return this.handleOTPAddTOTP();
+    default:
+      throw new Error('unsupported type');
+  }
+};
+
+BGCL.prototype.handleOTP = function() {
+  switch(this.args.cmd2) {
+    case 'list':
+      return this.handleOTPList();
+    case 'add':
+      return this.handleOTPAdd();
+    case 'remove':
+      return this.handleOTPRemove();
+    default:
+      throw new Error('unknown command');
+  }
 };
 
 BGCL.prototype.printWalletList = function(wallets) {
@@ -2656,6 +2804,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleLogout();
     case 'status':
       return this.handleStatus();
+    case 'otp':
+      return this.handleOTP();
     case 'wallets':
       return this.handleWallets();
     case 'wallet':
