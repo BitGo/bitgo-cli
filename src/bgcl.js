@@ -2091,7 +2091,7 @@ BGCL.prototype.handleNewWallet = function() {
     userKeychain = {
       xpub: userkey.neutered().toBase58()
     };
-    if (userkey.neutered().toBase58() === userkey.toBase58()) {
+    if (userkey.neutered().toBase58() !== userkey.toBase58()) {
       userKeychain.encryptedXprv = self.bitgo.encrypt({
         password: input.password,
         input: userkey.toBase58()
