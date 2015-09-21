@@ -776,13 +776,13 @@ BGCL.prototype.fetchUsers = function(userIds) {
   return Q.all(userFetches);
 };
 
-BGCL.prototype.retryForUnlock = function(func) {
+BGCL.prototype.retryForUnlock = function(params, func) {
   var self = this;
   return func()
   .catch(function(err) {
     if (err.needsOTP) {
       // unlock and try again
-      return self.handleUnlock().then(func);
+      return self.handleUnlock(params).then(func);
     } else {
       throw err;
     }
@@ -926,7 +926,7 @@ BGCL.prototype.handleOTPList = function() {
 BGCL.prototype.handleOTPRemove = function() {
   var self = this;
   var deviceId = this.args.deviceId;
-  return this.retryForUnlock(function() {
+  return this.retryForUnlock({}, function() {
     return self.doDelete('/user/otp/' + deviceId)
     .then(function() {
       self.info('Removed');
@@ -941,7 +941,7 @@ BGCL.prototype.handleOTPAddYubikey = function() {
   .then(input.getVariable('otp', 'Enter Yubikey OTP: ', true))
   .then(input.getVariable('label', 'Label (optional): '))
   .then(function() {
-    return self.retryForUnlock(function() {
+    return self.retryForUnlock({}, function() {
       return self.doPut('/user/otp', { type: 'yubikey', otp: input.otp, label: input.label || undefined });
     });
   })
@@ -969,7 +969,7 @@ BGCL.prototype.handleOTPAddTOTP = function() {
   .then(function() {
     fs.unlinkSync(svgFile);
     fs.unlinkSync(htmlFile);
-    return self.retryForUnlock(function() {
+    return self.retryForUnlock({}, function() {
       var params = {
         type: 'totp',
         key: key.key,
@@ -1386,28 +1386,17 @@ BGCL.prototype.handleFanoutUnspents = function() {
     throw new Error('No current wallet.');
   }
 
-  var fanoutParams = {
-    target: target,
-  };
+  var fanoutParams = { target: target };
   return this.ensureWallet()
   .then(input.getVariable('password', 'Wallet password: '))
   .then(function() {
     fanoutParams.walletPassphrase = input.password;
-    return self.session.wallet.fanOutUnspents(fanoutParams)
-    .catch(function(err) {
-      if (err.needsOTP) {
-        // unlock
-        return self.handleUnlock({ duration: 3600 })
-        .then(function() {
-          // try again
-          return self.session.wallet.fanOutUnspents(fanoutParams)
-        });
-      } else {
-        throw err;
-      }
-    })
+    return self.retryForUnlock({ duration: 3600 }, function(){
+      return self.session.wallet.fanOutUnspents(fanoutParams)
+    });
   })
   .then(function(fanoutTransaction) {
+    self.handleLock();
     if (self.args.json) {
       return self.printJSON(fanoutTransaction);
     }
@@ -1433,21 +1422,12 @@ BGCL.prototype.handleConsolidateUnspents = function() {
   .then(input.getVariable('password', 'Wallet password: '))
   .then(function() {
     consolidationParams.walletPassphrase = input.password;
-    return self.session.wallet.consolidateUnspents(consolidationParams)
-    .catch(function(err) {
-      if (err.needsOTP) {
-        // unlock
-        return self.handleUnlock({ duration: 3600 })
-        .then(function() {
-          // try again
-          return self.session.wallet.consolidateUnspents(consolidationParams)
-        });
-      } else {
-        throw err;
-      }
-    })
+    return self.retryForUnlock({ duration: 3600 }, function(){
+      return self.session.wallet.consolidateUnspents(consolidationParams);
+    });
   })
   .then(function(consolidationTransactions) {
+    self.handleLock();
     if (self.args.json) {
       return self.printJSON(consolidationTransactions);
     }
@@ -1699,7 +1679,7 @@ BGCL.prototype.handleShareWallet = function() {
     }
   })
   .then(function() {
-    return self.retryForUnlock(function() {
+    return self.retryForUnlock({}, function() {
       return wallet.shareWallet({
         email: input.email,
         permissions: input.permissions,
@@ -1726,7 +1706,7 @@ BGCL.prototype.handleAcceptShare = function() {
     if (!validPassword) {
       throw new Error('invalid password');
     }
-    return self.retryForUnlock(function() {
+    return self.retryForUnlock({}, function() {
       return self.bitgo.wallets().acceptShare({
         walletShareId: input.share,
         userPassword: input.password,

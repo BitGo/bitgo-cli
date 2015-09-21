@@ -31,7 +31,7 @@ Optional arguments:
   -j, --json            output JSON (if available)
 
 subcommands:
-{login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,tx,unlock,lock,sharewallet,shares,acceptshare,cancelshare,freezewallet,removewallet,unspents,unspent,sendtoaddress,newkey,splitkeys,verifysplitkeys,recoverkeys,dumpwalletuserkey,newwallet,shell,help,createtx,signtx,sendtx,listWebhooks,addWebhook,removeWebhook,util}
+{login,logout,token,status,wallets,wallet,balance,labels,setlabel,removelabel,addresses,newaddress,tx,unlock,lock,sharewallet,shares,acceptshare,cancelshare,freezewallet,removewallet,unspents,unspent,consolidate,fanout,sendtoaddress,newkey,splitkeys,verifysplitkeys,recoverkeys,dumpwalletuserkey,newwallet,shell,help,createtx,signtx,sendtx,listWebhooks,addWebhook,removeWebhook,util}
 
     login               Sign in to BitGo
     logout              Sign out of BitGo
@@ -56,6 +56,8 @@ subcommands:
     removewallet        Remove a wallet from your account
     unspents            Show unspents in the wallet
     unspent             Same as above command
+    consolidate         Consolidate unspents in a wallet
+    fanout              Fan out unspents in a wallet
     sendtoaddress       Create and send a transaction
     newkey              Create a new BIP32 keychain (client-side only)
     splitkeys           Create set of BIP32 keys, split into encrypted shares.
@@ -309,6 +311,20 @@ $ bitgo unspents -c 6       # show unspents with at least 6 confirms
 
 ## unspent
 Same command as above
+
+## consolidate
+Consolidate the unspents on the current wallet into fewer, bigger unspents, optionally setting the target count of unspents.
+```
+$ bitgo consolidate         # consolidate all unspents into one
+$ bitgo unspents -t 5       # consolidate all unspents until there are only five unspents left
+$ bitgo unspents -i 10      # consolidate all unspents into one, but only use up to 10 inputs per consolidation transaction
+```
+
+## fanout
+Fan out the unspents on the current wallet into a set of more, equally large, unspents.
+```
+$ bitgo fanout -t 20        # fan out all the unspents into a total of 20 unspents
+```
 
 ## sendtoaddress
 Send a transaction. This command provides a guided flow, but the needed info may also be provided on the command line.
