@@ -421,6 +421,21 @@ BGCL.prototype.createArgumentParser = function() {
   });
   unspents.addArgument(['-c', '--minconf'], {help: 'show only unspents with at least MINCONF confirms'});
 
+  // unspents consolidation
+  var consolidateUnspents = subparsers.addParser('consolidate', {
+    addHelp: true,
+    help: 'Consolidate unspents in a wallet'
+  });
+  consolidateUnspents.addArgument(['-t', '--target'], { help: 'consolidate unspents until only TARGET number of unspents is left (defaults to 1)' });
+  consolidateUnspents.addArgument(['-i', '--inputCountPerTransaction'], { help: 'use up to that many inputs in a consolidation batch (defaults to 85)' });
+
+  // unspents fanout
+  var fanoutUnspents = subparsers.addParser('fanout', {
+    addHelp: true,
+    help: 'Fan out unspents in a wallet'
+  });
+  fanoutUnspents.addArgument(['-t', '--target'], { help: 'fan out up to TARGET number of unspents' });
+
   // txlist
   var txList = subparsers.addParser('tx', {
     addHelp: true,
@@ -1363,6 +1378,83 @@ BGCL.prototype.handleUnspents = function() {
   });
 };
 
+BGCL.prototype.handleFanoutUnspents = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var target = parseInt(this.args.target) || 1;
+  if (!this.session.wallet) {
+    throw new Error('No current wallet.');
+  }
+
+  var fanoutParams = {
+    target: target,
+  };
+  return this.ensureWallet()
+  .then(input.getVariable('password', 'Wallet password: '))
+  .then(function() {
+    fanoutParams.walletPassphrase = input.password;
+    return self.session.wallet.fanOutUnspents(fanoutParams)
+    .catch(function(err) {
+      if (err.needsOTP) {
+        // unlock
+        return self.handleUnlock({ duration: 3600 })
+        .then(function() {
+          // try again
+          return self.session.wallet.fanOutUnspents(fanoutParams)
+        });
+      } else {
+        throw err;
+      }
+    })
+  })
+  .then(function(fanoutTransaction) {
+    if (self.args.json) {
+      return self.printJSON(fanoutTransaction);
+    }
+    self.info('\nUnspents have been fanned out.');
+  })
+};
+
+BGCL.prototype.handleConsolidateUnspents = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var target = parseInt(this.args.target) || 1;
+  const ABSOLUTE_MAX_CONSOLIDATION_INPUT_COUNT = 85;
+  var maxInputCountPerConsolidation = parseInt(this.args.inputCountPerTransaction) || ABSOLUTE_MAX_CONSOLIDATION_INPUT_COUNT;
+  if (!this.session.wallet) {
+    throw new Error('No current wallet.');
+  }
+
+  var consolidationParams = {
+    target: target,
+    maxInputCountPerConsolidation: maxInputCountPerConsolidation
+  };
+  return this.ensureWallet()
+  .then(input.getVariable('password', 'Wallet password: '))
+  .then(function() {
+    consolidationParams.walletPassphrase = input.password;
+    return self.session.wallet.consolidateUnspents(consolidationParams)
+    .catch(function(err) {
+      if (err.needsOTP) {
+        // unlock
+        return self.handleUnlock({ duration: 3600 })
+        .then(function() {
+          // try again
+          return self.session.wallet.consolidateUnspents(consolidationParams)
+        });
+      } else {
+        throw err;
+      }
+    })
+  })
+  .then(function(consolidationTransactions) {
+    if (self.args.json) {
+      return self.printJSON(consolidationTransactions);
+    }
+    self.info('\nUnspents have been consolidated.');
+  })
+};
+
 BGCL.prototype.handleTxList = function() {
   var printTxList = function(txlist) {
     var rows = txlist.map(function(tx) {
@@ -1459,11 +1551,17 @@ BGCL.prototype.handleTxList = function() {
   });
 };
 
-BGCL.prototype.handleUnlock = function() {
+/**
+ * Handles the unlocking of a session by prompting for the 2FA code.
+ * @param params Additional arguments that can be passed iff this method is called programmatically
+ *  - duration: Duration in seconds for the unlock period
+ * @returns {*}
+ */
+BGCL.prototype.handleUnlock = function(params) {
   var self = this;
   var input = new UserInput(this.args);
   return this.checkAndWarnOfLongLivedTokenChange(input, "About to unlock a longed-lived access token!\n" +
-    "This will also unlock the token for any other users who have access to it\n")
+  "This will also unlock the token for any other users who have access to it\n")
   .then(function() {
     return Q()
   })
@@ -1475,7 +1573,11 @@ BGCL.prototype.handleUnlock = function() {
   })
   .then(input.getVariable('otp', '2-step Verification Code: ', true))
   .then(function() {
-    return self.bitgo.unlock({'otp': input.otp});
+    var unlockOptions = { 'otp': input.otp };
+    if (typeof(params.duration) === 'number') {
+      unlockOptions.duration = params.duration;
+    }
+    return self.bitgo.unlock(unlockOptions);
   })
   .then(function() {
     self.action('Unlocked session');
@@ -2850,6 +2952,10 @@ BGCL.prototype.runCommandHandler = function(cmd) {
     case 'unspents':
     case 'unspent':
       return this.handleUnspents();
+    case 'consolidate':
+      return this.handleConsolidateUnspents();
+    case 'fanout':
+      return this.handleFanoutUnspents();
     case 'sendtoaddress':
       return this.handleSendCoins();
     case 'newkey':
