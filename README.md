@@ -316,8 +316,8 @@ Same command as above
 Consolidate the unspents on the current wallet into fewer, bigger unspents, optionally setting the target count of unspents.
 ```
 $ bitgo consolidate         # consolidate all unspents into one
-$ bitgo unspents -t 5       # consolidate all unspents until there are only five unspents left
-$ bitgo unspents -i 10      # consolidate all unspents into one, but only use up to 10 inputs per consolidation transaction
+$ bitgo consolidate -t 5    # consolidate all unspents until there are only five unspents left
+$ bitgo consolidate -i 10   # consolidate all unspents into one, but only use up to 10 inputs per consolidation transaction
 ```
 
 ## fanout
