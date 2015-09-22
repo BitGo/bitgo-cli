@@ -1414,9 +1414,17 @@ BGCL.prototype.handleConsolidateUnspents = function() {
     throw new Error('No current wallet.');
   }
 
+  var progressCallback = function(data){
+    if (self.args.json) {
+      return self.printJSON(data);
+    }
+    self.info(data.index + ': Sent tx ' + data.txid + ' with ' + data.inputCount + ' inputs for ' + self.toBTC(data.amount, 4) + 'BTC to ' + data.destination.address);
+  };
+
   var consolidationParams = {
     target: target,
-    maxInputCountPerConsolidation: maxInputCountPerConsolidation
+    maxInputCountPerConsolidation: maxInputCountPerConsolidation,
+    progressCallback: progressCallback
   };
   return this.ensureWallet()
   .then(input.getVariable('password', 'Wallet password: '))
