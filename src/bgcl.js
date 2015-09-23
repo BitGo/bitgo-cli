@@ -426,15 +426,17 @@ BGCL.prototype.createArgumentParser = function() {
     addHelp: true,
     help: 'Consolidate unspents in a wallet'
   });
-  consolidateUnspents.addArgument(['-t', '--target'], { help: 'consolidate unspents until only TARGET number of unspents is left (defaults to 1)' });
-  consolidateUnspents.addArgument(['-i', '--inputCountPerTransaction'], { help: 'use up to that many inputs in a consolidation batch (defaults to 85)' });
+  consolidateUnspents.addArgument(['-t', '--target'], { type: 'int', help: 'consolidate unspents until only TARGET number of unspents is left (defaults to 1)' });
+  consolidateUnspents.addArgument(['-i', '--inputCount'], { type: 'int', help: 'use up to that many inputs in a consolidation batch (defaults to 85)' });
+  consolidateUnspents.addArgument(['-f', '--feeRate'], { type: 'int', help: 'set fee rate in satoshis per KB'});
+  consolidateUnspents.addArgument(['-c', '--confirmTarget'], { type: 'int', help: 'set fee based on estimates for getting confirmed within this number of blocks'});
 
   // unspents fanout
   var fanoutUnspents = subparsers.addParser('fanout', {
     addHelp: true,
     help: 'Fan out unspents in a wallet'
   });
-  fanoutUnspents.addArgument(['-t', '--target'], { help: 'fan out up to TARGET number of unspents' });
+  fanoutUnspents.addArgument(['-t', '--target'], { type: 'int', required: true, help: 'fan out up to TARGET number of unspents' });
 
   // txlist
   var txList = subparsers.addParser('tx', {
@@ -1381,7 +1383,7 @@ BGCL.prototype.handleUnspents = function() {
 BGCL.prototype.handleFanoutUnspents = function() {
   var self = this;
   var input = new UserInput(this.args);
-  var target = parseInt(this.args.target) || 1;
+  var target = this.args.target;
   if (!this.session.wallet) {
     throw new Error('No current wallet.');
   }
@@ -1392,24 +1394,22 @@ BGCL.prototype.handleFanoutUnspents = function() {
   .then(function() {
     fanoutParams.walletPassphrase = input.password;
     return self.retryForUnlock({ duration: 3600 }, function(){
-      return self.session.wallet.fanOutUnspents(fanoutParams)
+      return self.session.wallet.fanOutUnspents(fanoutParams);
     });
   })
   .then(function(fanoutTransaction) {
-    self.handleLock();
     if (self.args.json) {
       return self.printJSON(fanoutTransaction);
     }
     self.info('\nUnspents have been fanned out.');
-  })
+  });
 };
 
 BGCL.prototype.handleConsolidateUnspents = function() {
   var self = this;
   var input = new UserInput(this.args);
-  var target = parseInt(this.args.target) || 1;
-  const ABSOLUTE_MAX_CONSOLIDATION_INPUT_COUNT = 85;
-  var maxInputCountPerConsolidation = parseInt(this.args.inputCountPerTransaction) || ABSOLUTE_MAX_CONSOLIDATION_INPUT_COUNT;
+  var target = this.args.target || 1;
+  var maxInputCount = this.args.inputCount || undefined;
   if (!this.session.wallet) {
     throw new Error('No current wallet.');
   }
@@ -1418,29 +1418,34 @@ BGCL.prototype.handleConsolidateUnspents = function() {
     if (self.args.json) {
       return self.printJSON(data);
     }
-    self.info(data.index + ': Sent tx ' + data.txid + ' with ' + data.inputCount + ' inputs for ' + self.toBTC(data.amount, 4) + 'BTC to ' + data.destination.address);
+    self.info(data.index + ': Sent ' + data.inputCount + '-input tx ' + data.txid + ' for ' +
+      self.toBTC(data.amount, 4) + 'BTC with fee of ' +
+      self.toBTC(data.fee, 8) + ' BTC to ' +
+      data.destination.address);
   };
 
-  var consolidationParams = {
+  var params = {
     target: target,
-    maxInputCountPerConsolidation: maxInputCountPerConsolidation,
-    progressCallback: progressCallback
+    maxInputCountPerConsolidation: maxInputCount,
+    progressCallback: progressCallback,
+    feeRate: this.args.feeRate || undefined,
+    feeTxConfirmTarget: this.args.confirmTarget || undefined,
   };
+
   return this.ensureWallet()
   .then(input.getVariable('password', 'Wallet password: '))
   .then(function() {
-    consolidationParams.walletPassphrase = input.password;
+    params.walletPassphrase = input.password;
     return self.retryForUnlock({ duration: 3600 }, function(){
-      return self.session.wallet.consolidateUnspents(consolidationParams);
+      return self.session.wallet.consolidateUnspents(params);
     });
   })
-  .then(function(consolidationTransactions) {
-    self.handleLock();
+  .then(function(transactions) {
     if (self.args.json) {
-      return self.printJSON(consolidationTransactions);
+      return self.printJSON(transactions);
     }
     self.info('\nUnspents have been consolidated.');
-  })
+  });
 };
 
 BGCL.prototype.handleTxList = function() {
