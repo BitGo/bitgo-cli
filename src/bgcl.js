@@ -1076,6 +1076,10 @@ BGCL.prototype.handleWallets = function(setWallet) {
 
     var walletIds = _.keys(sessionWallets);
     var fetches = walletIds.map(function(id) { return self.bitgo.wallets().get({ id: id }); });
+    if (setWalletType === 'id' && !sessionWallets[setWallet]) {
+      // getting an id which is not in the list, so it could be paged. add it in.
+      fetches.push(self.bitgo.wallets().get({ id: setWallet }));
+    }
     return Q.all(fetches);
   })
   .then(function(wallets) {
@@ -1085,9 +1089,6 @@ BGCL.prototype.handleWallets = function(setWallet) {
     var newWallet;
     if (setWalletType) {
       var wallet = _.find(sortedWallets, findWallet);
-      if (!wallet) {
-        throw new Error('Wallet ' + setWallet + ' not found');
-      }
       newWallet = wallet;
     } else if (!self.session.wallet && sortedWallets.length) {
       newWallet = sortedWallets[0];
