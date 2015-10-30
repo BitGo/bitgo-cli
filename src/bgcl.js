@@ -468,6 +468,7 @@ BGCL.prototype.createArgumentParser = function() {
   sendToAddress.addArgument(['-p', '--password'], {help: 'the wallet password'});
   sendToAddress.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
   sendToAddress.addArgument(['-c', '--comment'], {help: 'optional private comment'});
+  sendToAddress.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
   sendToAddress.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
 
   // freezewallet
@@ -576,6 +577,7 @@ BGCL.prototype.createArgumentParser = function() {
   createTx.addArgument(['-f', '--fee'], {help: 'fee to pay for transaction'});
   createTx.addArgument(['-c', '--comment'], {help: 'optional private comment'});
   createTx.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
+  createTx.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
 
   var signTx = subparsers.addParser('signtx', {
     addHelp: true,
@@ -1552,6 +1554,7 @@ BGCL.prototype.handleTxList = function() {
  * @returns {*}
  */
 BGCL.prototype.handleUnlock = function(params) {
+  params = params || {};
   var self = this;
   var input = new UserInput(this.args);
   return this.checkAndWarnOfLongLivedTokenChange(input, "About to unlock a longed-lived access token!\n" +
@@ -1842,7 +1845,9 @@ BGCL.prototype.handleSendCoins = function() {
       address: input.dest,
       amount: satoshis,
       walletPassphrase: input.password,
-      message: input.comment
+      message: input.comment,
+      minConfirms: input.unconfirmed ? 0 : 1,
+      enforceMinConfirmsForChange: false
     };
     return wallet.sendCoins(txParams)
     .catch(function(err) {
@@ -1893,13 +1898,19 @@ BGCL.prototype.handleCreateTx = function() {
   .then(function(wallet) {
     var recipients = {};
     recipients[input.dest] = satoshis;
-    var params = { recipients: recipients };
+    var params = {
+      recipients: recipients,
+      minConfirms: input.unconfirmed ? 0 : 1,
+      enforceMinConfirmsForChange: false
+    };
+
     if (input.fee) {
       params.fee = Math.floor(Number(input.fee) * 1e8);
       if (isNaN(params.fee)) {
         throw new Error('Invalid fee (non-numeric)');
       }
     }
+
     return wallet.createTransaction(params)
     .catch(function(err) {
       if (err.needsOTP) {
