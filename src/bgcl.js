@@ -2608,7 +2608,7 @@ BGCL.prototype.handleUpdateKey = function() {
     var xpub = extendedKey.neutered().toBase58();
     //var xprv = self.args.verifyonly ? undefined : extendedKey.toBase58();
     if (xpub !== key.xpub) {
-      throw new Error("xpubs don't match for key " + key.index);
+      throw new Error("xpubs don't match for key " + index);
     }
   })
   .then(input.getIntVariable('n', 'Number of shares per key (N) (new eschema): ', true, 1, 10))
@@ -2620,9 +2620,12 @@ BGCL.prototype.handleUpdateKey = function() {
     return input.getIntVariable('m', 'Number of shares required to restore key (M <= N) (new eschema): ', true, mMin, input.n)();
   })
   .then(function(){
+    console.log("Generating " + input.n + " new shared secrets for key #" + index + ". set the passwords:");
     return getEncryptPassword(0, input.n);
   })
   .then(function(){
+    // re generate key with new schema and passwords and.
+    // update keys and wirte them back to original json file.
     var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
     input['key'] = {
       seed: seed,
@@ -2630,6 +2633,7 @@ BGCL.prototype.handleUpdateKey = function() {
       xprv: extendedKey.toBase58()
     }
     var cryptedKey = self.genSplitKey(input);
+    cryptedKey['index'] = index;
     keys[index] = cryptedKey;
     fs.writeFileSync(input.file, JSON.stringify(keys, null, 2));
     console.log('Wrote ' + input.file);
