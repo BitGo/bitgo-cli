@@ -561,6 +561,15 @@ BGCL.prototype.createArgumentParser = function() {
   recoverKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
   recoverKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
 
+  var updateKey = subparsers.addParser('updatekey', {
+    addHelp: true,
+    help: "Update key passwords/schema from an output file of 'splitkeys'"
+  });
+  updateKey.addArgument(['-m'], { help: 'number of shares required to reconstruct a key' });
+  updateKey.addArgument(['-n'], { help: 'total number of shares per key' });
+  updateKey.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
+  updateKey.addArgument(['-k', '--key'], { help: 'key index to update' });
+
   var dumpWalletUserKey = subparsers.addParser('dumpwalletuserkey', {
     addHelp: true,
     help: "Dumps the user's private key (first key in the 3 multi-sig keys) to the output"
@@ -2288,7 +2297,7 @@ BGCL.prototype.addUserEntropy = function(userString) {
  */
 BGCL.prototype.genSplitKey = function(params, index) {
   var self = this;
-  var key = this.genKey();
+  var key = params.key || this.genKey();
   var result = {
     xpub: key.xpub,
     m: params.m,
@@ -2392,6 +2401,7 @@ BGCL.prototype.handleRecoverKeys = function() {
   var passwords = [];
   var keysToRecover;
 
+
   /**
    * Get a password from the user, testing it against encrypted shares
    * to determine which (if any) index of the shares it corresponds to.
@@ -2494,6 +2504,135 @@ BGCL.prototype.handleRecoverKeys = function() {
       };
     });
     self.printJSON(recoveredKeys);
+  });
+};
+
+/**
+ * update key passwords from the JSON file produced by splitkeys
+ */
+BGCL.prototype.handleUpdateKey = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var passwords = [];
+  var key;
+  var keys;
+  var index;
+
+  var getEncryptPassword = function(i, n) {
+    if (i === n) {
+      return;
+    }
+    var passwordName = 'password' + i;
+    return input.getPassword(passwordName, 'Password for share ' + i + ': ', true)()
+    .then(function() {
+      return getEncryptPassword(i+1, n);
+    });
+  };
+
+  /**
+   * Get a password from the user, testing it against encrypted shares
+   * to determine which (if any) index of the shares it corresponds to.
+   *
+   * @param   {Number} i      index of the password (0..n-1)
+   * @param   {Number} n      total number of passwords needed
+   * @param   {String[]}   shares   list of encrypted shares
+   * @returns {Promise}
+   */
+  var getDecryptPassword = function(i, n, shares) {
+    if (i === n) {
+      return;
+    }
+    var passwordName = 'password' + i;
+    return input.getPassword(passwordName, 'Password ' + i + ': ', false)()
+    .then(function() {
+      var password = input[passwordName];
+      var found = false;
+      shares.forEach(function(share, shareIndex) {
+        try {
+          sjcl.decrypt(password, share);
+          if (!passwords.some(function(p) { return p.shareIndex === shareIndex; })) {
+            passwords.push({shareIndex: shareIndex, password: password});
+            found = true;
+          }
+        } catch (err) {}
+      });
+      if (found) {
+        return getDecryptPassword(i+1, n, shares);
+      }
+      console.log('bad password - try again');
+      delete input[passwordName];
+      return getDecryptPassword(i, n, shares);
+    });
+  };
+
+  return Q().then(function() {
+    console.log('Update Split Key passwords and schema');
+    console.log();
+  })
+  .then(input.getVariable('file', 'Input file (JSON): '))
+  .then(input.getVariable('key', 'index to update: '))
+  .then(function() {
+    // Grab the list of keys from the file
+    var json = fs.readFileSync(input.file);
+    keys = JSON.parse(json);
+
+    // Determine and validate the index to update
+    index = parseInt(input.key,10);
+    if (isNaN(index)) {
+      throw new Error('invalid index');
+    }
+    if (index < 0 || index >= keys.length) {
+      throw new Error('index out of range: ' + keys.length + ' keys in file');
+    }
+
+    console.log('Processing key: ' + index);
+
+    // Get the passwords
+    key = keys[index];
+    return getDecryptPassword(0, key.m, key.seedShares);
+  })
+  .then(function() {
+    // Decrypt the shares, recombine into a seed, validating against existing 
+    // xpub.
+    var shares = passwords.map(function(p, i) {
+      console.log('Decrypting Key #' + index + ', Part #' + i);
+      delete input['password' + i];
+      return sjcl.decrypt(p.password, key.seedShares[p.shareIndex]);
+    });
+    if (shares.length === 1) {
+      seed = shares[0];
+    } else {
+      seed = secrets.combine(shares);
+    }
+    var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
+    var xpub = extendedKey.neutered().toBase58();
+    //var xprv = self.args.verifyonly ? undefined : extendedKey.toBase58();
+    if (xpub !== key.xpub) {
+      throw new Error("xpubs don't match for key " + key.index);
+    }
+  })
+  .then(input.getIntVariable('n', 'Number of shares per key (N) (new eschema): ', true, 1, 10))
+  .then(function() {
+    var mMin = 2;
+    if (input.n === 1) {
+      mMin = 1;
+    }
+    return input.getIntVariable('m', 'Number of shares required to restore key (M <= N) (new eschema): ', true, mMin, input.n)();
+  })
+  .then(function(){
+    return getEncryptPassword(0, input.n);
+  })
+  .then(function(){
+    var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
+    input['key'] = {
+      seed: seed,
+      xpub: extendedKey.neutered().toBase58(),
+      xprv: extendedKey.toBase58()
+    }
+    var cryptedKey = self.genSplitKey(input);
+    keys[index] = cryptedKey;
+    fs.writeFileSync(input.file, JSON.stringify(keys, null, 2));
+    console.log('Wrote ' + input.file);
   });
 };
 
@@ -2972,6 +3111,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleRecoverKeys();
     case 'recoverkeys':
       return this.handleRecoverKeys();
+    case 'updatekey':
+      return this.handleUpdateKey();
     case 'dumpwalletuserkey':
       return this.handleDumpWalletUserKey();
     case 'newwallet':
