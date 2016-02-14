@@ -565,8 +565,8 @@ BGCL.prototype.createArgumentParser = function() {
     addHelp: true,
     help: "Update key passwords/schema from an output file of 'splitkeys'"
   });
-  updateKey.addArgument(['-m'], { help: 'number of shares required to reconstruct a key' });
-  updateKey.addArgument(['-n'], { help: 'total number of shares per key' });
+  updateKey.addArgument(['-m'], { help: 'new number of shares required to reconstruct a key' });
+  updateKey.addArgument(['-n'], { help: 'new total number of shares per key' });
   updateKey.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
   updateKey.addArgument(['-k', '--key'], { help: 'key index to update' });
 
