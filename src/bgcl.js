@@ -2606,7 +2606,6 @@ BGCL.prototype.handleUpdateKey = function() {
     }
     var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
     var xpub = extendedKey.neutered().toBase58();
-    //var xprv = self.args.verifyonly ? undefined : extendedKey.toBase58();
     if (xpub !== key.xpub) {
       throw new Error("xpubs don't match for key " + index);
     }
