@@ -561,14 +561,14 @@ BGCL.prototype.createArgumentParser = function() {
   recoverKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
   recoverKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
 
-  var updateKey = subparsers.addParser('updatekey', {
+  var updateSplitKey = subparsers.addParser('updatesplitkey', {
     addHelp: true,
     help: "Update key passwords/schema from an output file of 'splitkeys'"
   });
-  updateKey.addArgument(['-m'], { help: 'new number of shares required to reconstruct a key' });
-  updateKey.addArgument(['-n'], { help: 'new total number of shares per key' });
-  updateKey.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
-  updateKey.addArgument(['-k', '--key'], { help: 'key index to update' });
+  updateSplitKey.addArgument(['-m'], { help: 'new number of shares required to reconstruct a key' });
+  updateSplitKey.addArgument(['-n'], { help: 'new total number of shares per key' });
+  updateSplitKey.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
+  updateSplitKey.addArgument(['-k', '--key'], { help: 'key index to update' });
 
   var dumpWalletUserKey = subparsers.addParser('dumpwalletuserkey', {
     addHelp: true,
@@ -2510,7 +2510,7 @@ BGCL.prototype.handleRecoverKeys = function() {
 /**
  * update key passwords from the JSON file produced by splitkeys
  */
-BGCL.prototype.handleUpdateKey = function() {
+BGCL.prototype.handleUpdateSplitKey = function() {
   var self = this;
   var input = new UserInput(this.args);
   var passwords = [];
@@ -3114,8 +3114,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleRecoverKeys();
     case 'recoverkeys':
       return this.handleRecoverKeys();
-    case 'updatekey':
-      return this.handleUpdateKey();
+    case 'updatesplitkey':
+      return this.handleUpdateSplitKey();
     case 'dumpwalletuserkey':
       return this.handleDumpWalletUserKey();
     case 'newwallet':
