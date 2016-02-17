@@ -473,6 +473,14 @@ BGCL.prototype.createArgumentParser = function() {
   sendToAddress.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
   sendToAddress.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
 
+  sendToAddress.addArgument(['--fee'], {type: 'int', nargs: '?', help: 'optional - custom fee to use with this transaction in satoshis.  if not provided, a default, minimum fee will be used'});
+  sendToAddress.addArgument(['--feeRate'], {type: 'int', nargs: '?', help: 'optional - the amount of fee in satoshis per kilobyte - specify either fee, feeRate, or feeTxConfirmTarget but not more than one'});
+  sendToAddress.addArgument(['--feeTxConfirmTarget'], {type: 'int', nargs: '?', help: 'optional - calculate fees dynamically so that the transaction will be confirmed in this number of blocks'});
+  sendToAddress.addArgument(['--maxFeeRate'], {type: 'int', nargs: '?', help: 'optional - The maximum fee per kb to use in satoshis, for safety purposes when using dynamic fees, for example when specifying the --feeTxConfirmTarget option'});
+  sendToAddress.addArgument(['--minConfirms'], {type: 'int', nargs: '?', help: 'optional - the minimum confirmations an output must have before spending. Overrides --unconfirmed option if present'});
+  sendToAddress.addArgument(['--enforceMinConfirmsForChange'], {action: 'storeTrue', help: 'apply minConfirms setting for change addresses too'});
+  sendToAddress.addArgument(['--targetWalletUnspents'], {type: 'int', nargs: '?', help: 'optional - The number of UTXO\'s that will exist after a transaction is sent'});
+
   // freezewallet
   var freezeWallet = subparsers.addParser('freezewallet', {
     addHelp: true,
@@ -1849,9 +1857,15 @@ BGCL.prototype.handleSendToAddress = function() {
       walletPassphrase: input.password,
       message: input.comment,
       minConfirms: input.unconfirmed ? 0 : undefined,
-      enforceMinConfirmsForChange: false,
+      enforceMinConfirmsForChange: input.enforceMinConfirmsForChange,
       changeAddress: wallet.id()
     };
+
+    var optionalParamKeys = ['fee', 'feeRate', 'feeTxConfirmTarget', 'maxFeeRate', 'minConfirms', 'targetWalletUnspents'];
+    var optionalParams = _.pick(input, function(value, key) {
+      return _.contains(optionalParamKeys, key) && !_.isNull(value);
+    });
+    txParams = _.extend(txParams, optionalParams);
 
     return wallet.createTransaction(txParams)
     .catch(function(err) {
