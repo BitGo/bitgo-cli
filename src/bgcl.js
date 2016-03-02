@@ -822,7 +822,6 @@ BGCL.prototype.handleToken = function() {
     self.session = new Session(self.bitgo);
     self.action('Logged in as ' + user.username);
     var promises = [];
-    promises.push(self.handleWallets());
     promises.push(self.fetchLabels());
     return Q.all(promises);
   })
@@ -849,7 +848,6 @@ BGCL.prototype.handleLogin = function() {
     self.session = new Session(self.bitgo);
     self.action('Logged in as ' + input.username);
     var promises = [];
-    promises.push(self.handleWallets());
     promises.push(self.fetchLabels());
     return Q.all(promises);
   })
@@ -1040,6 +1038,13 @@ BGCL.prototype.handleWallets = function(setWallet) {
     try {
       bitcoin.Address.fromBase58Check(setWallet);
       setWalletType = 'id';
+      return self.bitgo.wallets().get({ id: setWallet })
+      .then(function(newWallet) {
+        self.action('Set current wallet to ' + newWallet.id());
+        self.session.wallet = newWallet;
+        self.session.save();
+        return [newWallet];
+      });
     } catch (e) {
       var walletIndex = parseInt(setWallet);
       if (walletIndex == setWallet) {
@@ -1063,7 +1068,7 @@ BGCL.prototype.handleWallets = function(setWallet) {
         throw new Error('unknown setWalletType');
     }
   };
-
+  
   return self.bitgo.wallets().list()
   .then(function(result) {
     var wallets = result.wallets.filter(function(w) { return w.type() !== 'coinbase'; });
