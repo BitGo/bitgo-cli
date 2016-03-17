@@ -588,6 +588,17 @@ BGCL.prototype.createArgumentParser = function() {
   createTx.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
   createTx.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
 
+  var createTxFromJson = subparsers.addParser('createtxfromjson', {
+    addHelp: true,
+    help: "Create unsigned transaction (online) to many addresses using json form {str addr: int value_in_satoshis, ...}"
+
+  });
+  createTxFromJson.addArgument(['-j', '--json'], {help: 'json string {str addr: int value_in_satoshis, ...}'});
+  createTxFromJson.addArgument(['-f', '--fee'], {help:'fee to pay for transaction'});
+  createTxFromJson.addArgument(['-c', '--comment'], {help: 'optional private comment'});
+  createTxFromJson.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
+  createTxFromJson.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
+
   var signTx = subparsers.addParser('signtx', {
     addHelp: true,
     help: 'Sign a transaction (can be used offline) with an input transaction JSON file'
@@ -1877,6 +1888,87 @@ BGCL.prototype.handleSendCoins = function() {
   });
 };
 
+
+BGCL.prototype.handleCreateTxFromJson = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var tx_data;
+
+  return this.ensureWallet()
+  .then(function () {
+    self.walletHeader();
+    self.info('Create Unsigned Transaction From Json File:\n');
+  })
+  .then(input.getVariable('json', 'json string {str address: int value in satoshis,...}:'))
+  .then(input.getVariable('fee', 'Blockchain fee (blank to use default fee calculation): '))
+  .then(input.getVariable('comment', 'Optional private comment: '))
+  .then(function() {
+    tx_data = JSON.parse(input.json);
+    for(var address in tx_data[0]) {
+      if (tx_data.hasOwnProperty(address)) {
+        try {
+          bitcoin.Address.fromBase58Check(address);
+          } catch (e) {
+          throw new Error('Invalid destination address: ' + address);
+        }
+        satoshis = Number(tx_data[address]);
+        if (isNaN(satoshis)) {
+          throw new Error('Invalid amount (non-numeric)');
+        }
+      }  
+    }
+    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
+  })
+  .then(function(wallet) {
+  var params = {
+      recipients: tx_data,
+      minConfirms: input.unconfirmed ? 0 : 1,
+      enforceMinConfirmsForChange: false
+    };
+
+    if (input.fee) {
+      params.fee = Math.floor(Number(input.fee) * 1e8);
+      if (isNaN(params.fee)) {
+        throw new Error('Invalid fee (non-numeric)');
+      }
+    }
+
+    return wallet.createTransaction(params)
+    .catch(function(err) {
+      if (err.needsOTP) {
+        // unlock
+        return self.handleUnlock()
+        .then(function() {
+          // try again
+          return wallet.createTransaction(params);
+        });
+      } else {
+        throw err;
+      }
+    });
+  })
+  .then(function(tx) {
+    self.info('Created unsigned transaction for:\n')
+    var total = 0;
+    for (var address in tx_data) {
+      if (tx_data.hasOwnProperty(address)) {
+        self.info(address + ' ---> ' + self.toBTC(tx_data[address]) + ' BTC');  
+        total = total + tx_data[address]
+      }
+    }
+    self.info('\nBTC blockchain fee: ' + tx.fee/1e8 + ' BTC\n')
+    self.info('Total BTC: ' + self.toBTC(total) + '\n')
+    tx.comment = input.comment;
+    if (!input.prefix) {
+      input.prefix = 'tx' + moment().format('YYYYMDHm');
+    }
+    var filename = input.prefix + '.json';
+    fs.writeFileSync(filename, JSON.stringify(tx, null, 2));
+    console.log('Wrote ' + filename);
+  });
+};
+
+
 BGCL.prototype.handleCreateTx = function() {
   var self = this;
   var input = new UserInput(this.args);
@@ -3128,6 +3220,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleHelp();
     case 'createtx':
       return this.handleCreateTx();
+    case 'createtxfromjson':
+      return this.handleCreateTxFromJson();
     case 'signtx':
       return this.handleSignTx();
     case 'sendtx':
