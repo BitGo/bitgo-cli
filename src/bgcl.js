@@ -1068,7 +1068,7 @@ BGCL.prototype.handleWallets = function(setWallet) {
         throw new Error('unknown setWalletType');
     }
   };
-  
+
   return self.bitgo.wallets().list()
   .then(function(result) {
     var wallets = result.wallets.filter(function(w) { return w.type() !== 'coinbase'; });
@@ -1808,10 +1808,12 @@ BGCL.prototype.handleRemoveWallet = function() {
   });
 };
 
-BGCL.prototype.handleSendCoins = function() {
+BGCL.prototype.handleSendToAddress = function() {
   var self = this;
   var input = new UserInput(this.args);
   var satoshis;
+  var txParams;
+  var wallet = this.session.wallet;
 
   return this.ensureWallet()
   .then(function() {
@@ -1834,34 +1836,54 @@ BGCL.prototype.handleSendCoins = function() {
     if (isNaN(satoshis)) {
       throw new Error('Invalid amount (non-numeric)');
     }
-    var prefix = input.confirm ? 'Sending' : 'Please confirm sending';
-    self.info(prefix + ' BTC ' + self.toBTC(satoshis) + ' + 0.0001 blockchain fee to ' + input.dest + '\n');
-    return input.getVariable('confirm', 'Type \'go\' to confirm: ')();
-  })
-  .then(function() {
-    if (input.confirm !== 'go') {
-      throw new Error('Transaction canceled');
-    }
-    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
-  })
-  .then(function(wallet) {
-    var satoshis = Math.floor(input.amount * 1e8);
-    var txParams = {
-      address: input.dest,
-      amount: satoshis,
+    txParams = {
+      recipients: [ { address: input.dest, amount: satoshis }],
       walletPassphrase: input.password,
       message: input.comment,
       minConfirms: input.unconfirmed ? 0 : 1,
-      enforceMinConfirmsForChange: false
+      enforceMinConfirmsForChange: false,
+      changeAddress: wallet.id()
     };
-    return wallet.sendCoins(txParams)
+
+    return wallet.createTransaction(txParams)
     .catch(function(err) {
       if (err.needsOTP) {
         // unlock
         return self.handleUnlock()
         .then(function() {
           // try again
-          return wallet.sendCoins(txParams);
+          return wallet.createTransaction(txParams);
+        });
+      } else {
+        throw err;
+      }
+    });
+  })
+  .then(function(txResult) {
+    var amounts = [];
+    amounts.push(util.format('BTC %s', self.toBTC(txParams.recipients[0].amount)));
+    if (txResult.bitgoFee) {
+      amounts.push(util.format('%s BitGo fee', self.toBTC(txResult.bitgoFee.amount)));
+    }
+    amounts.push(util.format('%s blockchain fee', self.toBTC(txResult.fee)));
+    var prefix = input.confirm ? 'Sending' : 'Please confirm sending';
+    self.info(prefix + ' ' + amounts.join(' + ') +  ' to ' + txParams.recipients[0].address + '\n');
+    return input.getVariable('confirm', 'Type \'go\' to confirm: ')();
+  })
+  .then(function() {
+    if (input.confirm !== 'go') {
+      throw new Error('Transaction canceled');
+    }
+
+    delete txParams.changeAddress;
+    return wallet.sendMany(txParams)
+    .catch(function(err) {
+      if (err.needsOTP) {
+        // unlock
+        return self.handleUnlock()
+        .then(function() {
+          // try again
+          return wallet.sendMany(txParams);
         });
       } else {
         throw err;
@@ -2967,7 +2989,7 @@ BGCL.prototype.runCommandHandler = function(cmd) {
     case 'fanout':
       return this.handleFanoutUnspents();
     case 'sendtoaddress':
-      return this.handleSendCoins();
+      return this.handleSendToAddress();
     case 'newkey':
       return this.handleNewKey();
     case 'splitkeys':
