@@ -430,6 +430,7 @@ BGCL.prototype.createArgumentParser = function() {
   consolidateUnspents.addArgument(['-i', '--inputCount'], { type: 'int', help: 'use up to that many inputs in a consolidation batch (defaults to 85)' });
   consolidateUnspents.addArgument(['-f', '--feeRate'], { type: 'int', help: 'set fee rate in satoshis per KB'});
   consolidateUnspents.addArgument(['-c', '--confirmTarget'], { type: 'int', help: 'set fee based on estimates for getting confirmed within this number of blocks'});
+  consolidateUnspents.addArgument(['-m', '--minSize'], { type: 'int', help: 'minimum size in BTC to consolidate'})
 
   // unspents fanout
   var fanoutUnspents = subparsers.addParser('fanout', {
@@ -1418,9 +1419,12 @@ BGCL.prototype.handleConsolidateUnspents = function() {
   var input = new UserInput(this.args);
   var target = this.args.target || 1;
   var maxInputCount = this.args.inputCount || undefined;
+  var minSize = (this.args.minSize === '') ? 0.25 : parseFloat(this.args.minSize);
   if (!this.session.wallet) {
     throw new Error('No current wallet.');
   }
+
+  var minSatoshis = Math.floor(minSize * 1e8);
 
   var progressCallback = function(data){
     if (self.args.json) {
@@ -1434,6 +1438,7 @@ BGCL.prototype.handleConsolidateUnspents = function() {
 
   var params = {
     target: target,
+    minSize: minSatoshis,
     maxInputCountPerConsolidation: maxInputCount,
     progressCallback: progressCallback,
     feeRate: this.args.feeRate || undefined,
