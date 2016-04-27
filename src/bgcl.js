@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 var ArgumentParser = require('argparse').ArgumentParser;
-var bitcoin = require('bitcoinjs-lib');
-var Transaction = require('bitcoinjs-lib/src/transaction');
-var Script = require('bitcoinjs-lib/src/script');
 var bitgo = require('bitgo');
+var bitcoin = bitgo.bitcoin;
+var Transaction = bitcoin.Transaction;
+
 var bs58check = require('bs58check');
 var crypto = require('crypto');
 var Q = require('q');
@@ -1037,7 +1037,7 @@ BGCL.prototype.handleWallets = function(setWallet) {
   var setWalletType;
   if (setWallet) {
     try {
-      bitcoin.Address.fromBase58Check(setWallet);
+      bitcoin.address.fromBase58Check(setWallet);
       setWalletType = 'id';
       return self.bitgo.wallets().get({ id: setWallet })
       .then(function(newWallet) {
@@ -1833,7 +1833,7 @@ BGCL.prototype.handleSendToAddress = function() {
   .then(function() {
     input.comment = input.comment || undefined;
     try {
-      bitcoin.Address.fromBase58Check(input.dest);
+      bitcoin.address.fromBase58Check(input.dest);
     } catch (e) {
       throw new Error('Invalid destination address');
     }
@@ -1917,7 +1917,7 @@ BGCL.prototype.handleCreateTx = function() {
   .then(function() {
     input.comment = input.comment || undefined;
     try {
-      bitcoin.Address.fromBase58Check(input.dest);
+      bitcoin.address.fromBase58Check(input.dest);
     } catch (e) {
       throw new Error('Invalid destination address');
     }
@@ -2028,7 +2028,7 @@ BGCL.prototype.handleSignTx = function() {
     }
 
     for(var i=0; i < transaction.outs.length; i++) {
-      var outputAddress = bitcoin.Address.fromOutputScript(transaction.outs[i].script);
+      var outputAddress = bitcoin.address.fromOutputScript(transaction.outs[i].script, bitcoin.getNetwork());
       if (changeAddress == outputAddress) {
         outputAddress += ' (verified change address back to wallet)';
       }
@@ -2732,7 +2732,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
   var recipients;
   var inputAddressInfo;
   var inputAddressUnspents;
-  var transaction = new Transaction();
+  var transaction = new bitcoin.TransactionBuilder(bitcoin.getNetwork());
   var keychain;
 
   var resultJSON = {
@@ -2826,7 +2826,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
           // Actually add to transaction as input
           var hash = new Buffer(unspent.tx, 'hex');
           hash = new Buffer(Array.prototype.reverse.call(hash));
-          var script = Script.fromHex(redeemScript);
+          var script = new Buffer(redeemScript, 'hex');
           transaction.addInput(hash, unspent.n, 0xffffffff, script);
         };
 
@@ -2915,7 +2915,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
     .then(function() {
       return wallet.signTransaction({
         unspents: resultJSON.inputs,
-        transactionHex: transaction.toHex(),
+        transactionHex: transaction.buildIncomplete().toHex(),
         keychain: keychain
       });
     })
