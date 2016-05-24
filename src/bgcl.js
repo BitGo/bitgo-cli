@@ -1896,7 +1896,14 @@ BGCL.prototype.handleSendToAddress = function() {
     });
   })
   .then(function(tx) {
-    self.action('Sent transaction ' + tx.hash);
+    if (tx.hash) {
+      self.action('Sent transaction ' + tx.hash);
+    } else {
+      if (tx.status === 'pendingApproval') {
+        self.info("Transaction triggered policy - " + tx.error);
+        self.info("Pending approval ID: " + tx.pendingApproval);
+      }
+    }
   });
 };
 
