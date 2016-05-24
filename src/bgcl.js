@@ -1845,7 +1845,7 @@ BGCL.prototype.handleSendToAddress = function() {
       recipients: [ { address: input.dest, amount: satoshis }],
       walletPassphrase: input.password,
       message: input.comment,
-      minConfirms: input.unconfirmed ? 0 : 1,
+      minConfirms: input.unconfirmed ? 0 : undefined,
       enforceMinConfirmsForChange: false,
       changeAddress: wallet.id()
     };
@@ -2182,7 +2182,8 @@ BGCL.prototype.handleNewWallet = function() {
 
   return this.ensureAuthenticated()
   .then(function() {
-    console.log('Create New Wallet ' + self.userHeader());
+    self.userHeader();
+    console.log('Create New Wallet');
     console.log();
     if (!input.userkey) {
       console.log('First, we need the user keychain. Enter a BIP32 xprv below, or press');
