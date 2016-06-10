@@ -72,6 +72,8 @@ subcommands:
     help                Display help
     createtx            Create an unsigned transaction (online) for signing
                         (the signing can be done offline)
+    createtxfromjson    Create unsigned transaction (online) to many addresses 
+                        using json form {str addr: int value_in_satoshis, ...}
     signtx              Sign a transaction (can be used offline) with an
                         input transaction JSON file
     sendtx              Send a transaction for co-signing to BitGo
