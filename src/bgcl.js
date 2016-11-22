@@ -1869,11 +1869,11 @@ BGCL.prototype.handleSendToAddress = function() {
   })
   .then(function(txResult) {
     var amounts = [];
-    amounts.push(util.format('BTC %s', self.toBTC(txParams.recipients[0].amount)));
+    amounts.push(util.format('BTC %s', self.toBTC(txParams.recipients[0].amount, 8)));
     if (txResult.bitgoFee) {
-      amounts.push(util.format('%s BitGo fee', self.toBTC(txResult.bitgoFee.amount)));
+      amounts.push(util.format('%s BitGo fee', self.toBTC(txResult.bitgoFee.amount, 8)));
     }
-    amounts.push(util.format('%s blockchain fee', self.toBTC(txResult.fee)));
+    amounts.push(util.format('%s blockchain fee', self.toBTC(txResult.fee, 8)));
     var prefix = input.confirm ? 'Sending' : 'Please confirm sending';
     self.info(prefix + ' ' + amounts.join(' + ') +  ' to ' + txParams.recipients[0].address + '\n');
     return input.getVariable('confirm', 'Type \'go\' to confirm: ')();
