@@ -431,6 +431,7 @@ BGCL.prototype.createArgumentParser = function() {
   consolidateUnspents.addArgument(['-f', '--feeRate'], { type: 'int', help: 'set fee rate in satoshis per KB'});
   consolidateUnspents.addArgument(['-c', '--confirmTarget'], { type: 'int', help: 'set fee based on estimates for getting confirmed within this number of blocks'});
   consolidateUnspents.addArgument(['-m', '--maxSize'], { help: 'maximum size unspent in BTC to consolidate'});
+  consolidateUnspents.addArgument(['-s', '--minSize'], { type: 'int', help: 'minimum size unspent in satoshis to consolidate' });
 
   // unspents fanout
   var fanoutUnspents = subparsers.addParser('fanout', {
@@ -1419,6 +1420,7 @@ BGCL.prototype.handleConsolidateUnspents = function() {
   var input = new UserInput(this.args);
   var target = this.args.target || 1;
   var maxInputCount = this.args.inputCount || undefined;
+  var minSize = this.args.minSize || 0;
   var maxSize = (this.args.maxSize === '') ? 0.25 : parseFloat(this.args.maxSize);
   if (!this.session.wallet) {
     throw new Error('No current wallet.');
@@ -1438,11 +1440,12 @@ BGCL.prototype.handleConsolidateUnspents = function() {
 
   var params = {
     target: target,
+    minSize: minSize,
     maxSize: maxSatoshis,
     maxInputCountPerConsolidation: maxInputCount,
     progressCallback: progressCallback,
     feeRate: this.args.feeRate || undefined,
-    feeTxConfirmTarget: this.args.confirmTarget || undefined,
+    feeTxConfirmTarget: this.args.confirmTarget || undefined
   };
 
   return this.ensureWallet()
