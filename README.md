@@ -61,6 +61,7 @@ subcommands:
     consolidate         Consolidate unspents in a wallet
     fanout              Fan out unspents in a wallet
     sendtoaddress       Create and send a transaction
+    sendtomany          Create and send a transaction to multiple recepients
     newkey              Create a new BIP32 keychain (client-side only)
     splitkeys           Create set of BIP32 keys, split into encrypted shares.
     verifysplitkeys     Verify the public keys contained in the output file
@@ -339,7 +340,28 @@ Destination address: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
 Amount (in BTC): 0.5
 Wallet passcode: ********************
 Optional comment: paying Mike for lunch
-Please confirm sending BTC 0.5000 + 0.0001 blockchain fee to 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+Please confirm sending BTC 0.5000 + 0.0001 blockchain fee:
+  0.5000 to 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+Type 'go' to confirm: go
+2-step Verification Code: 0000000
+*** Unlocked session
+*** Sent transaction 9ef2042647ceb0b1ec8f18733ab46d11c330b4449549fe37a9c559e170806d0e
+```
+
+## sendtomany
+Send a transaction to multiple recepients at once. Similarly to `sendtoaddress`, this command provides a guided flow, but the needed info may also be provided on the command line.
+```
+$ bitgo -e test sendtomany
+Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
+Send Transaction:
+
+JSON dictionary of recipients in address: amountInBTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }: { "mjp5HeoDJQHo7yfZSPfcNpSkoBRdPzRjWs": 0.5, "mo4mbU89mkFD8JLZ1aVwRUVbfvYcppwzqe": 0.2, "mfXrwmbR82ht39n7o8ga1AAeVzd9aZTv16": 0.3 }
+Wallet passcode: ********************
+Optional comment: paying Mike for lunch, Tim for beers
+Please confirm sending BTC 1.0000 + 0.0001 blockchain fee:
+  0.5000 to mjp5HeoDJQHo7yfZSPfcNpSkoBRdPzRjWs
+  0.2000 to mo4mbU89mkFD8JLZ1aVwRUVbfvYcppwzqe
+  0.3000 to mfXrwmbR82ht39n7o8ga1AAeVzd9aZTv16
 Type 'go' to confirm: go
 2-step Verification Code: 0000000
 *** Unlocked session
