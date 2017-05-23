@@ -59,6 +59,7 @@ subcommands:
     consolidate         Consolidate unspents in a wallet
     fanout              Fan out unspents in a wallet
     sendtoaddress       Create and send a transaction
+    sendtomany          Create and send a transaction to multiple recepients
     newkey              Create a new BIP32 keychain (client-side only)
     splitkeys           Create set of BIP32 keys, split into encrypted shares.
     verifysplitkeys     Verify the public keys contained in the output file
@@ -337,6 +338,23 @@ Destination address: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
 Amount (in BTC): 0.5
 Wallet passcode: ********************
 Optional comment: paying Mike for lunch
+Please confirm sending BTC 0.5000 + 0.0001 blockchain fee to 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+Type 'go' to confirm: go
+2-step Verification Code: 0000000
+*** Unlocked session
+*** Sent transaction 9ef2042647ceb0b1ec8f18733ab46d11c330b4449549fe37a9c559e170806d0e
+```
+
+## sendtomany
+Send multiple transactions at once. Similarly to `sendtoaddress`, this command provides a guided flow, but the needed info may also be provided on the command line. Be sure not to leave spaces between colons and commas when providing the addresses param!
+```
+$ bitgo -e test sendtomany
+Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
+Send Transaction:
+
+Comma separated <destination address>:<amount (in BTC)> pairs:
+Wallet passcode: ********************
+Optional comment: paying Mike for lunch, Tim for beers
 Please confirm sending BTC 0.5000 + 0.0001 blockchain fee to 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
 Type 'go' to confirm: go
 2-step Verification Code: 0000000
