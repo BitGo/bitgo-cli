@@ -1827,7 +1827,6 @@ BGCL.prototype.handleRemoveWallet = function() {
 BGCL.prototype.handleSendToAddress = function() {
   var self = this;
   var input = new UserInput(this.args);
-  var satoshis;
   var txParams;
   var wallet = this.session.wallet;
 
@@ -1837,23 +1836,56 @@ BGCL.prototype.handleSendToAddress = function() {
     console.log();
     self.info('Send Transaction:\n');
   })
-  .then(input.getVariable('dest', 'Destination address: '))
-  .then(input.getVariable('amount', 'Amount (in BTC): '))
+  .then(input.getVariable('multi', 'Destination address - amount pairs: (example: 2NCjKq1TCsGxfFoiiAvvrFmRugUWJcsBYp7:0.1, 2N4ZAwXVPUL8tGB8hbGiH2eZtyA3NqMLs6t:0.2)'))
+  .then(function() {
+    if (!input.multi) {
+      return Q()
+      .then(input.getVariable('dest', 'Destination address: '))
+      .then(input.getVariable('amount', 'Amount (in BTC): '));
+    }
+  })
   .then(input.getVariable('password', 'Wallet password: '))
   .then(input.getVariable('comment', 'Optional comment: '))
   .then(function() {
     input.comment = input.comment || undefined;
-    try {
-      bitcoin.address.fromBase58Check(input.dest);
-    } catch (e) {
-      throw new Error('Invalid destination address');
+
+    var recipients = [];
+
+    if (input.multi) {
+      recipients = input.multi.split(',').map(function(str) {
+        var pair = str.trim().split(':').map(function(str) { return str.trim(); });
+
+        return {
+          address: pair[0],
+          amount: pair[1]
+        }
+      });
+    } else {
+      recipients.push({
+        address: input.dest,
+        amount: input.amount
+      });
     }
-    satoshis = Math.floor(Number(input.amount) * 1e8);
-    if (isNaN(satoshis)) {
-      throw new Error('Invalid amount (non-numeric)');
-    }
+
+    recipients = recipients.map(function(recipient) {
+      try {
+        bitcoin.address.fromBase58Check(recipient.address);
+      } catch (e) {
+        throw new Error('Invalid destination address: ' + recipient.address);
+      }
+      var satoshis = Math.floor(Number(recipient.amount) * 1e8);
+      if (isNaN(satoshis)) {
+        throw new Error('Invalid amount (non-numeric)');
+      }
+
+      return {
+        address: recipient.address,
+        amount: satoshis
+      }
+    });
+
     txParams = {
-      recipients: [ { address: input.dest, amount: satoshis }],
+      recipients: recipients,
       walletPassphrase: input.password,
       message: input.comment,
       minConfirms: input.unconfirmed ? 0 : undefined,
