@@ -465,8 +465,10 @@ BGCL.prototype.createArgumentParser = function() {
     addHelp: true,
     help: 'Create and send a transaction'
   });
-  sendToAddress.addArgument(['-d', '--dest'], {help: 'the destination address'});
-  sendToAddress.addArgument(['-a', '--amount'], {help: 'the amount in BTC'});
+  sendToAddress.addArgument(['-d', '--dest'], {nargs: '?', help: 'the destination address'});
+  sendToAddress.addArgument(['-a', '--amount'], {nargs: '?', help: 'the amount in BTC'});
+  // WIP: multi
+  sendToAddress.addArgument(['-m', '--multi'], {help: 'multiple address-amount pairs, separated by commas'});
   sendToAddress.addArgument(['-p', '--password'], {help: 'the wallet password'});
   sendToAddress.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
   sendToAddress.addArgument(['-c', '--comment'], {help: 'optional private comment'});
@@ -1836,7 +1838,7 @@ BGCL.prototype.handleSendToAddress = function() {
     console.log();
     self.info('Send Transaction:\n');
   })
-  .then(input.getVariable('multi', 'Destination address - amount pairs: (example: 2NCjKq1TCsGxfFoiiAvvrFmRugUWJcsBYp7:0.1, 2N4ZAwXVPUL8tGB8hbGiH2eZtyA3NqMLs6t:0.2)'))
+  .then(input.getVariable('multi', 'Destination address - amount pairs: (example: 2NCjKq1TCsGxfFoiiAvvrFmRugUWJcsBYp7:0.1,2N4ZAwXVPUL8tGB8hbGiH2eZtyA3NqMLs6t:0.2)'))
   .then(function() {
     if (!input.multi) {
       return Q()
