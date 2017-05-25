@@ -465,13 +465,23 @@ BGCL.prototype.createArgumentParser = function() {
     addHelp: true,
     help: 'Create and send a transaction'
   });
-  sendToAddress.addArgument(['-d', '--dest'], {help: 'the destination address'});
-  sendToAddress.addArgument(['-a', '--amount'], {help: 'the amount in BTC'});
+  sendToAddress.addArgument(['-d', '--dest'], {nargs: '?', help: 'the destination address'});
+  sendToAddress.addArgument(['-a', '--amount'], {nargs: '?', help: 'the amount in BTC'});
+  // WIP: multi
+  sendToAddress.addArgument(['-m', '--multi'], {help: 'multiple address-amount pairs, separated by commas'});
   sendToAddress.addArgument(['-p', '--password'], {help: 'the wallet password'});
   sendToAddress.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
   sendToAddress.addArgument(['-c', '--comment'], {help: 'optional private comment'});
   sendToAddress.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
   sendToAddress.addArgument(['--confirm'], {action: 'storeConst', constant: 'go', help: 'skip interactive confirm step -- be careful!'});
+
+  sendToAddress.addArgument(['--fee'], {type: 'int', nargs: '?', help: 'optional - custom fee to use with this transaction in satoshis.  if not provided, a default, minimum fee will be used'});
+  sendToAddress.addArgument(['--feeRate'], {type: 'int', nargs: '?', help: 'optional - the amount of fee in satoshis per kilobyte - specify either fee, feeRate, or feeTxConfirmTarget but not more than one'});
+  sendToAddress.addArgument(['--feeTxConfirmTarget'], {type: 'int', nargs: '?', help: 'optional - calculate fees dynamically so that the transaction will be confirmed in this number of blocks'});
+  sendToAddress.addArgument(['--maxFeeRate'], {type: 'int', nargs: '?', help: 'optional - The maximum fee per kb to use in satoshis, for safety purposes when using dynamic fees, for example when specifying the --feeTxConfirmTarget option'});
+  sendToAddress.addArgument(['--minConfirms'], {type: 'int', nargs: '?', help: 'optional - the minimum confirmations an output must have before spending. Overrides --unconfirmed option if present'});
+  sendToAddress.addArgument(['--enforceMinConfirmsForChange'], {action: 'storeTrue', help: 'apply minConfirms setting for change addresses too'});
+  sendToAddress.addArgument(['--targetWalletUnspents'], {type: 'int', nargs: '?', help: 'optional - The number of UTXO\'s that will exist after a transaction is sent'});
 
   // freezewallet
   var freezeWallet = subparsers.addParser('freezewallet', {
@@ -1819,7 +1829,6 @@ BGCL.prototype.handleRemoveWallet = function() {
 BGCL.prototype.handleSendToAddress = function() {
   var self = this;
   var input = new UserInput(this.args);
-  var satoshis;
   var txParams;
   var wallet = this.session.wallet;
 
@@ -1829,29 +1838,68 @@ BGCL.prototype.handleSendToAddress = function() {
     console.log();
     self.info('Send Transaction:\n');
   })
-  .then(input.getVariable('dest', 'Destination address: '))
-  .then(input.getVariable('amount', 'Amount (in BTC): '))
+  .then(input.getVariable('multi', 'Destination address - amount pairs: (example: 2NCjKq1TCsGxfFoiiAvvrFmRugUWJcsBYp7:0.1,2N4ZAwXVPUL8tGB8hbGiH2eZtyA3NqMLs6t:0.2)'))
+  .then(function() {
+    if (!input.multi) {
+      return Q()
+      .then(input.getVariable('dest', 'Destination address: '))
+      .then(input.getVariable('amount', 'Amount (in BTC): '));
+    }
+  })
   .then(input.getVariable('password', 'Wallet password: '))
   .then(input.getVariable('comment', 'Optional comment: '))
   .then(function() {
     input.comment = input.comment || undefined;
-    try {
-      bitcoin.address.fromBase58Check(input.dest);
-    } catch (e) {
-      throw new Error('Invalid destination address');
+
+    var recipients = [];
+
+    if (input.multi) {
+      recipients = input.multi.split(',').map(function(str) {
+        var pair = str.trim().split(':').map(function(str) { return str.trim(); });
+
+        return {
+          address: pair[0],
+          amount: pair[1]
+        }
+      });
+    } else {
+      recipients.push({
+        address: input.dest,
+        amount: input.amount
+      });
     }
-    satoshis = Math.floor(Number(input.amount) * 1e8);
-    if (isNaN(satoshis)) {
-      throw new Error('Invalid amount (non-numeric)');
-    }
+
+    recipients = recipients.map(function(recipient) {
+      try {
+        bitcoin.address.fromBase58Check(recipient.address);
+      } catch (e) {
+        throw new Error('Invalid destination address: ' + recipient.address);
+      }
+      var satoshis = Math.floor(Number(recipient.amount) * 1e8);
+      if (isNaN(satoshis)) {
+        throw new Error('Invalid amount (non-numeric)');
+      }
+
+      return {
+        address: recipient.address,
+        amount: satoshis
+      }
+    });
+
     txParams = {
-      recipients: [ { address: input.dest, amount: satoshis }],
+      recipients: recipients,
       walletPassphrase: input.password,
       message: input.comment,
       minConfirms: input.unconfirmed ? 0 : undefined,
-      enforceMinConfirmsForChange: false,
+      enforceMinConfirmsForChange: input.enforceMinConfirmsForChange,
       changeAddress: wallet.id()
     };
+
+    var optionalParamKeys = ['fee', 'feeRate', 'feeTxConfirmTarget', 'maxFeeRate', 'minConfirms', 'targetWalletUnspents'];
+    var optionalParams = _.pick(input, function(value, key) {
+      return _.contains(optionalParamKeys, key) && !_.isNull(value);
+    });
+    txParams = _.extend(txParams, optionalParams);
 
     return wallet.createTransaction(txParams)
     .catch(function(err) {
@@ -1869,11 +1917,11 @@ BGCL.prototype.handleSendToAddress = function() {
   })
   .then(function(txResult) {
     var amounts = [];
-    amounts.push(util.format('BTC %s', self.toBTC(txParams.recipients[0].amount)));
+    amounts.push(util.format('BTC %s', self.toBTC(txParams.recipients[0].amount, 8)));
     if (txResult.bitgoFee) {
-      amounts.push(util.format('%s BitGo fee', self.toBTC(txResult.bitgoFee.amount)));
+      amounts.push(util.format('%s BitGo fee', self.toBTC(txResult.bitgoFee.amount, 8)));
     }
-    amounts.push(util.format('%s blockchain fee', self.toBTC(txResult.fee)));
+    amounts.push(util.format('%s blockchain fee', self.toBTC(txResult.fee, 8)));
     var prefix = input.confirm ? 'Sending' : 'Please confirm sending';
     self.info(prefix + ' ' + amounts.join(' + ') +  ' to ' + txParams.recipients[0].address + '\n');
     return input.getVariable('confirm', 'Type \'go\' to confirm: ')();
