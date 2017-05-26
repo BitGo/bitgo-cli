@@ -1848,8 +1848,8 @@ BGCL.prototype.handleSendToAddress = function() {
       recipients: [ { address: input.dest, amount: satoshis }],
       walletPassphrase: input.password,
       message: input.comment,
-      minConfirms: input.unconfirmed ? 0 : undefined,
-      enforceMinConfirmsForChange: false,
+      minConfirms: input.unconfirmed ? 0 : 1,
+      enforceMinConfirmsForChange: true,
       changeAddress: wallet.id()
     };
 
@@ -1943,7 +1943,7 @@ BGCL.prototype.handleCreateTx = function() {
     var params = {
       recipients: recipients,
       minConfirms: input.unconfirmed ? 0 : 1,
-      enforceMinConfirmsForChange: false
+      enforceMinConfirmsForChange: true
     };
 
     if (input.fee) {

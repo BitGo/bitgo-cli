@@ -4,6 +4,8 @@ BitGo Command-Line Interface (bitgo-cli)
 # Summary
 This package provides a NodeJS program (**bitgo**), which is a (mostly) complete command-line interface to [BitGo](https://www.bitgo.com) wallets. It also contains some useful client-side-only commands for key generation.
 
+[![Known Vulnerabilities](https://snyk.io/test/npm/bitgo-cli/badge.svg)](https://snyk.io/test/npm/bitgo-cli)
+
 # Installation
 
 **NodeJS must be installed as a prerequisite.**
