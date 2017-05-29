@@ -329,7 +329,7 @@ $ bitgo fanout -t 20        # fan out all the unspents into a total of 20 unspen
 ## sendtoaddress
 Send a transaction. This command provides a guided flow, but the needed info may also be provided on the command line.
 ```
-$ bitgo -e test send
+$ bitgo -e test sendtoaddress
 Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
 Send Transaction:
 
