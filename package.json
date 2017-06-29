@@ -43,5 +43,8 @@
     "superagent-as-promised": "3.1.1",
     "underscore.string": "2.4.0"
   },
+  "devDependencies": {
+    "mocha": "^3.4.2"
+  },
   "preferGlobal": true
 }
