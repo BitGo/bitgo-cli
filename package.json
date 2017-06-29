@@ -37,7 +37,7 @@
     "q": "1.1.2",
     "qr-image": "^3.1.0",
     "read": "1.0.5",
-    "secrets.js": "0.1.8",
+    "secrets.js-grempe": "1.1.0",
     "sjcl": "1.0.1",
     "superagent": "3.5.2",
     "superagent-as-promised": "3.1.1",
