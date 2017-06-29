@@ -2325,7 +2325,7 @@ BGCL.prototype.addUserEntropy = function(userString) {
  * Generate a new BIP32 key based on a random seed, returning
  * the xpub, along with the encrypted split shares for the seed.
  *
- * @param   {Object} input   the UserInput object with params
+ * @param   {Object} params  the UserInput object with params
  * @param   {Number} index   the index of the key in the batch
  * @returns {Object}         information about the key
  */
