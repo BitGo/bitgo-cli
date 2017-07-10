@@ -2743,7 +2743,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
   var recipients;
   var inputAddressInfo;
   var inputAddressUnspents;
-  var transaction = new bitcoin.TransactionBuilder(bitcoin.getNetwork());
+  var transaction = new bitcoin.TransactionBuilder(bitcoin.getNetwork('litecoin'));
   var keychain;
 
   var resultJSON = {
