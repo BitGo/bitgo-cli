@@ -2892,10 +2892,10 @@ BGCL.prototype.handleRecoverLitecoin = function() {
     .then(function() {
       return wallet.getEncryptedUserKeychain()
       .catch(function(error) {
-        // handle case where there are no encrypted keychains by allowing the user to specify them on the command lines
-        if (!_.contains(error.message, 'No encrypted keychains')) {
+        if (error.status !== 404) { // some other error besides the key not existing
           throw error;
         }
+        // handle case where there are no encrypted keychains by allowing the user to specify them on the command lines
         return input.getVariable('key', 'Type user xprv if you agree: ', true)()
         .then(function() {
           var hdNode = bitcoin.HDNode.fromBase58(input.key);

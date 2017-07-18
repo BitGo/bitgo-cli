@@ -17,6 +17,10 @@
     "bitgo",
     "bitcoin"
   ],
+  "engines": {
+    "node": ">=6.9.0",
+    "npm": ">=3.10.0"
+  },
   "author": "BitGo Inc.",
   "license": "Apache-2.0",
   "bugs": {
