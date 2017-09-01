@@ -1331,7 +1331,7 @@ BGCL.prototype.handleNewAddress = function() {
     throw new Error('No current wallet.');
   }
   var params = {
-    chain: this.args.change ? 1 : 0
+    chain: this.args.change ? 11 : 10
   };
   return wallet.createAddress(params)
   .then(function(result) {
