@@ -1451,7 +1451,8 @@ BGCL.prototype.handleConsolidateUnspents = function() {
     maxInputCountPerConsolidation: maxInputCount,
     progressCallback: progressCallback,
     feeRate: this.args.feeRate || undefined,
-    feeTxConfirmTarget: this.args.confirmTarget || undefined
+    feeTxConfirmTarget: this.args.confirmTarget || undefined,
+    xprv: this.args.xprv
   };
 
   return this.ensureWallet()
