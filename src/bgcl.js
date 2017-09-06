@@ -432,13 +432,14 @@ BGCL.prototype.createArgumentParser = function() {
   consolidateUnspents.addArgument(['-c', '--confirmTarget'], { type: 'int', help: 'set fee based on estimates for getting confirmed within this number of blocks'});
   consolidateUnspents.addArgument(['-m', '--maxSize'], { help: 'maximum size unspent in BTC to consolidate'});
   consolidateUnspents.addArgument(['-s', '--minSize'], { type: 'int', help: 'minimum size unspent in satoshis to consolidate' });
-
+  consolidateUnspents.addArgument(['-x', '--xprv'], { type: 'string', help: 'private key (use if not storing the encrypted private key with BitGo' });
   // unspents fanout
   var fanoutUnspents = subparsers.addParser('fanout', {
     addHelp: true,
     help: 'Fan out unspents in a wallet'
   });
   fanoutUnspents.addArgument(['-t', '--target'], { type: 'int', required: true, help: 'fan out up to TARGET number of unspents' });
+  fanoutUnspents.addArgument(['-x', '--xprv'], { type: 'string', help: 'private key (use if not storing the encrypted private key with BitGo' });
 
   // txlist
   var txList = subparsers.addParser('tx', {
@@ -1398,9 +1399,13 @@ BGCL.prototype.handleFanoutUnspents = function() {
     throw new Error('No current wallet.');
   }
 
-  var fanoutParams = { target: target };
+  var fanoutParams = { target: target, xprv: this.args.xprv };
   return this.ensureWallet()
-  .then(input.getVariable('password', 'Wallet password: '))
+  .then(function() {
+    if (!self.args.xprv) {
+      return input.getVariable('password', 'Wallet password: ')();
+    }
+  })
   .then(function() {
     fanoutParams.walletPassphrase = input.password;
     return self.retryForUnlock({ duration: 3600 }, function(){
@@ -1422,6 +1427,7 @@ BGCL.prototype.handleConsolidateUnspents = function() {
   var maxInputCount = this.args.inputCount || undefined;
   var minSize = this.args.minSize || 0;
   var maxSize = (this.args.maxSize === '') ? 0.25 : parseFloat(this.args.maxSize);
+
   if (!this.session.wallet) {
     throw new Error('No current wallet.');
   }
@@ -1449,7 +1455,11 @@ BGCL.prototype.handleConsolidateUnspents = function() {
   };
 
   return this.ensureWallet()
-  .then(input.getVariable('password', 'Wallet password: '))
+  .then(function() {
+    if (!self.args.xprv) {
+      return input.getVariable('password', 'Wallet password: ')();
+    }
+  })
   .then(function() {
     params.walletPassphrase = input.password;
     return self.retryForUnlock({ duration: 3600 }, function(){
