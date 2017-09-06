@@ -871,7 +871,7 @@ BGCL.prototype.handleLogout = function() {
   return this.checkAndWarnOfLongLivedTokenChange(input, "About to logout of a session with a longed-lived access token!\n" +
     "This will invalidate the long-lived access token, making it unusable in the future\n")
   .then(function() {
-    return self.bitgo.logout()
+    return self.bitgo.logout();
   })
   .then(function() {
     self.action('Logged out');
@@ -1584,7 +1584,7 @@ BGCL.prototype.handleUnlock = function(params) {
   return this.checkAndWarnOfLongLivedTokenChange(input, "About to unlock a longed-lived access token!\n" +
   "This will also unlock the token for any other users who have access to it\n")
   .then(function() {
-    return Q()
+    return Q();
   })
   .then(function() {
     if (!input.otp) {
@@ -2009,8 +2009,9 @@ BGCL.prototype.handleSignTx = function() {
     wallet = result;
 
     // Validate inputs
+    var hdNode;
     try {
-      var hdNode = bitcoin.HDNode.fromBase58(input.key);
+      hdNode = bitcoin.HDNode.fromBase58(input.key);
     } catch(e) {
       throw new Error('invalid private key');
     }
@@ -2123,7 +2124,7 @@ BGCL.prototype.handleSendTx = function() {
       return input.getVariable('comment', 'Optional private comment: ')()
       .then(function() {
         params.comment = input.comment;
-      })
+      });
     }
   })
   .then(function() {
@@ -2134,7 +2135,7 @@ BGCL.prototype.handleSendTx = function() {
         return self.handleUnlock()
         .then(function() {
           // try again
-          return wallet.sendTransaction(params)
+          return wallet.sendTransaction(params);
         });
       } else {
         throw err;
@@ -2681,7 +2682,7 @@ function printWebhookList(webhooks) {
               '  URL'
              );
   console.log(rows.join('\n'));
-};
+}
 
 BGCL.prototype.handleListWebhooks = function() {
   var self = this;
@@ -2804,7 +2805,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
           return { address: address, unspents: resultsByAddress[address].unspent };
         });
         return results;
-      })
+      });
     };
 
     resultJSON.walletId = self.session.wallet.id();
