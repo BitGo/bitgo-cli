@@ -433,6 +433,9 @@ BGCL.prototype.createArgumentParser = function() {
   consolidateUnspents.addArgument(['-m', '--maxSize'], { help: 'maximum size unspent in BTC to consolidate'});
   consolidateUnspents.addArgument(['-s', '--minSize'], { type: 'int', help: 'minimum size unspent in satoshis to consolidate' });
   consolidateUnspents.addArgument(['-x', '--xprv'], { type: 'string', help: 'private key (use if not storing the encrypted private key with BitGo' });
+  consolidateUnspents.addArgument(['-a', '--minConfirms'], { type: 'int', help: 'only select unspents with at least this many confirmations' });
+  consolidateUnspents.addArgument(['-b', '--maxIterationCount'], { type: 'int', help: 'Maximum number of consolidation iterations to perform.' });
+
   // unspents fanout
   var fanoutUnspents = subparsers.addParser('fanout', {
     addHelp: true,
@@ -440,6 +443,7 @@ BGCL.prototype.createArgumentParser = function() {
   });
   fanoutUnspents.addArgument(['-t', '--target'], { type: 'int', required: true, help: 'fan out up to TARGET number of unspents' });
   fanoutUnspents.addArgument(['-x', '--xprv'], { type: 'string', help: 'private key (use if not storing the encrypted private key with BitGo' });
+  fanoutUnspents.addArgument(['-m', '--minConfirms'], { type: 'int', help: 'only select unspents with at least this many confirmations' });
 
   // txlist
   var txList = subparsers.addParser('tx', {
@@ -1399,7 +1403,15 @@ BGCL.prototype.handleFanoutUnspents = function() {
     throw new Error('No current wallet.');
   }
 
-  var fanoutParams = { target: target, xprv: this.args.xprv };
+  var fanoutParams = {
+    target: target,
+    xprv: this.args.xprv
+  };
+
+  if (Number.isInteger(this.args.minConfirms) && this.args.minConfirms >= 0) {
+    fanoutParams.minConfirms = this.args.minConfirms;
+  }
+
   return this.ensureWallet()
   .then(function() {
     if (!self.args.xprv) {
@@ -1454,6 +1466,14 @@ BGCL.prototype.handleConsolidateUnspents = function() {
     feeTxConfirmTarget: this.args.confirmTarget || undefined,
     xprv: this.args.xprv
   };
+
+  if (Number.isInteger(this.args.maxIterationCount) && this.args.maxIterationCount >= 0) {
+    params.maxIterationCount = this.args.maxIterationCount;
+  }
+
+  if (Number.isInteger(this.args.minConfirms) && this.args.minConfirms >= 0) {
+    minConfirms = this.args.minConfirms;
+  }
 
   return this.ensureWallet()
   .then(function() {
