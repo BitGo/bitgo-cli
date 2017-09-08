@@ -355,7 +355,7 @@ $ bitgo -e test sendtomany
 Current wallet: 2N9VaC4SDRNNnEy6G8zLF8gnHgkY6LV9PsX
 Send Transaction:
 
-JSON dictionary of recipients in address: amountInBTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }: { "mjp5HeoDJQHo7yfZSPfcNpSkoBRdPzRjWs": 0.5, "mo4mbU89mkFD8JLZ1aVwRUVbfvYcppwzqe": 0.2, "mfXrwmbR82ht39n7o8ga1AAeVzd9aZTv16": 0.3 }
+JSON dictionary of recipients in address: amountInBTC format, e.g. [{"address": "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1", "amount": 5}, {"address": "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1", "amount": 2}, {"address": "mjp5HeoDJQHo7yfZSPfcNpSkoBRdPzRjWs", "amount": 0.5}, {"address": "mo4mbU89mkFD8JLZ1aVwRUVbfvYcppwzqe", "amount": 0.2}, {"address": "mfXrwmbR82ht39n7o8ga1AAeVzd9aZTv16", "amount": 0.3}]
 Wallet passcode: ********************
 Optional comment: paying Mike for lunch, Tim for beers
 Please confirm sending BTC 1.0000 + 0.0001 blockchain fee:

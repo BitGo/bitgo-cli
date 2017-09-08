@@ -485,7 +485,7 @@ BGCL.prototype.createArgumentParser = function() {
     addHelp: true,
     help: 'Create and send a transaction to multiple addresses'
   });
-  sendToMany.addArgument(['-r', '--recipients'], {help: 'JSON dictionary of recipients in address: amountInBTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }'});
+  sendToMany.addArgument(['-r', '--recipients'], {help: 'JSON array of recipient objects with attributes: address, amount, e.g. {[{"address": "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1", "amount": 5}, {"address": "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1", "amount": 2}]'});
   sendToMany.addArgument(['-p', '--password'], {help: 'the wallet password'});
   sendToMany.addArgument(['-o', '--otp'], {help: 'the 2-step verification code'});
   sendToMany.addArgument(['-c', '--comment'], {help: 'optional private comment'});
@@ -1862,7 +1862,7 @@ BGCL.prototype.handleSendTo = function() {
         .then(input.getVariable('amount', 'Amount (in BTC): '));
       case 'sendtomany':
         return Q()
-        .then(input.getVariable('recipients', 'JSON dictionary of recipients in address: amountInBTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }: '));
+        .then(input.getVariable('recipients', 'JSON array of recipient objects with attributes: address, amount, e.g. {[{"address": "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1", "amount": 5}, {"address": "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1", "amount": 2}]: '));
     }
   })
   .then(input.getVariable('password', 'Wallet password: '))
@@ -1881,13 +1881,7 @@ BGCL.prototype.handleSendTo = function() {
 
       case 'sendtomany':
         try {
-          var recepientsInput = JSON.parse(input.recipients);
-          Object.keys(recepientsInput).forEach((address)=> {
-            recipients.push({
-              address: address,
-              amount: recepientsInput[address]
-            });
-          });
+          recipients = JSON.parse(input.recipients);
         } catch (e) {
           throw new Error('Error parsing recepients param. Wrong JSON format?');
         }
