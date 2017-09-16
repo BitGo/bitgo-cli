@@ -2768,6 +2768,12 @@ BGCL.prototype.handleRemoveWebhook = function() {
   });
 };
 
+/**
+ * Aids in the recovery of Litecoin that was sent to a BitCoin address
+ * It creates a half signed transaction using the users private keys and
+ * then needs to be signed by BitGo for the transaction to be complete.
+ * This function only works on Litecoin mainnet.
+ */
 BGCL.prototype.handleRecoverLitecoin = function() {
   var self = this;
   var input = new UserInput(this.args);
@@ -2775,8 +2781,15 @@ BGCL.prototype.handleRecoverLitecoin = function() {
   var recipients;
   var inputAddressInfo;
   var inputAddressUnspents;
-  var transaction = new bitcoin.TransactionBuilder(bitcoin.getNetwork('litecoin'));
+  var transaction = new bitcoin.TransactionBuilder(bitcoin.networks.litecoin);
   var keychain;
+
+  // V2 API unspents base url
+  const baseUrl = 'https://www.bitgo.com/api/v2/ltc/public/addressUnspents/';
+
+  // Used to convert address format for LTC from old to new format
+  var userAgent = 'BitGoCLI/' + pjson.version;
+  var ltcCoin = new bitgo.BitGo({ env: 'prod', userAgent: userAgent }).coin('ltc');
 
   var resultJSON = {
     inputs: [],
@@ -2789,7 +2802,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
     self.info('Craft a transaction to recover litecoin mistakenly sent to a BitGo Bitcoin multisig addresses on the Litecoin network\n');
   })
   .then(input.getVariable('inputaddresses', 'JSON Array of input addresses on the litecoin network, e.g. ["3MJybWMfT5QgxgurpguwmeaeZP2bkSXeVM","3EbzkMxuCKt7HkcyxSdFgtHopWwow1nQni"]: '))
-  .then(input.getVariable('recipients', 'JSON dictionary of recipients in address: amountInBTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }: '))
+  .then(input.getVariable('recipients', 'JSON dictionary of recipients in address: amountInLTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }: '))
   .then(function() {
     try {
       inputAddresses = JSON.parse(input.inputaddresses);
@@ -2809,20 +2822,20 @@ BGCL.prototype.handleRecoverLitecoin = function() {
     };
 
     var getUnspentsForAddresses = function(inputAddresses) {
-      var url = "http://ltc.blockr.io/api/v1/address/unspent/" + inputAddresses.join(",");
+      const newAddresses = inputAddresses.map((address) => ltcCoin.canonicalAddress(address, 2));
+      const url = baseUrl + newAddresses.join(',');
+
       return request.get(url)
+      .set('Content-Type', 'application/json')
       .then(function(result) {
-        var resultsByAddress = _.indexBy(result.body.data, 'address');
-        if (result.body.data.address) {
-          // there was only 1 result, which got returned as a single object instead of array.
-          resultsByAddress = {};
-          resultsByAddress[result.body.data.address] = result.body.data;
-        }
-        var results = inputAddresses.map(function(address) {
+        var resultsByAddress = _.indexBy(result.body, 'address');
+        var results = newAddresses.map(function(address) {
           if (!resultsByAddress[address]) {
-            throw new Error("No unspent txs on litecoin network for " + address);
+            throw new Error('No unspent txs on litecoin network for ' + address);
           }
-          return { address: address, unspents: resultsByAddress[address].unspent };
+          const newAddress = ltcCoin.canonicalAddress(address, 1);
+          const [txid, nOut] = resultsByAddress[address].id.split(':');
+          return { address: newAddress, amount: resultsByAddress[address].value, tx: txid, nOut: parseInt(nOut) };
         });
         return results;
       });
@@ -2849,7 +2862,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
         var totalThisAddress = 0;
         var addInputFromUnspent = function(unspent) {
           var redeemScript = inputAddressInfo[address].redeemScript;
-          var amount = Math.round(parseFloat(unspent.amount) * 1e8);
+          var amount = Math.round(parseFloat(unspent.amount));
 
           totalThisAddress += amount;
           totalInputAmount += amount;
@@ -2862,18 +2875,17 @@ BGCL.prototype.handleRecoverLitecoin = function() {
             path: '/0/0' + inputAddressInfo[address].path,
             chainPath: inputAddressInfo[address].path,
             txHash: unspent.tx,
-            txOutputN: unspent.n,
+            txOutputN: unspent.nOut,
             txValue: amount
           });
 
           // Actually add to transaction as input
           var hash = new Buffer(unspent.tx, 'hex');
           hash = new Buffer(Array.prototype.reverse.call(hash));
-          var script = new Buffer(redeemScript, 'hex');
-          transaction.addInput(hash, unspent.n, 0xffffffff, script);
+          transaction.addInput(hash, unspent.nOut, 0xffffffff);
         };
 
-        _.each(inputAddressUnspents[address].unspents, addInputFromUnspent);
+        _.each(inputAddressUnspents, addInputFromUnspent);
         self.info("Total in " + address + " " + self.toBTC(totalThisAddress) + " LTC");
         self.info("====");
       });
