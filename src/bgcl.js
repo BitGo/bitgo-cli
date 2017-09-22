@@ -2882,7 +2882,12 @@ BGCL.prototype.handleRecoverLitecoin = function() {
           // Actually add to transaction as input
           var hash = new Buffer(unspent.tx, 'hex');
           hash = new Buffer(Array.prototype.reverse.call(hash));
-          transaction.addInput(hash, unspent.nOut, 0xffffffff);
+          try {
+            transaction.addInput(hash, unspent.nOut, 0xffffffff);
+          } catch (e) {
+            resultJSON.inputs[resultJSON.inputs.length - 1].error = e;
+            console.trace(e);
+          }
         };
 
         _.each(inputAddressUnspents, addInputFromUnspent);
@@ -2892,6 +2897,8 @@ BGCL.prototype.handleRecoverLitecoin = function() {
 
       self.info("Total input amount: " + self.toBTC(totalInputAmount) + " LTC");
       self.info("====");
+
+      self.info('Result JSON: ' + JSON.stringify(resultJSON, null, 4));
 
       return totalInputAmount;
     })
