@@ -2888,7 +2888,8 @@ BGCL.prototype.handleRecoverLitecoin = function() {
             chainPath: currentAddressInfo.path,
             txHash: unspent.tx,
             txOutputN: unspent.nOut,
-            txValue: amount
+            txValue: amount,
+            value: parseInt(unspent.value)
           });
 
           // Actually add to transaction as input
