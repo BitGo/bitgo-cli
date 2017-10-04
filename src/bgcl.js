@@ -534,6 +534,15 @@ BGCL.prototype.createArgumentParser = function() {
   });
   newKey.addArgument(['entropy'], {nargs: '?', help: 'optional additional entropy'});
 
+  // encryptkey
+  var encryptKey = subparsers.addParser('encryptkey', {
+    addHelp: true,
+    help: 'Encrypt a BIP32 private key with a password (client-side only)'
+  });
+  encryptKey.addArgument(['-x', '--xprv'], {help: 'xprv to encrypt'});
+  encryptKey.addArgument(['-pa', '--password'], {help: 'password to encrypt key with'});
+  encryptKey.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
+
   // newwallet
   var newWallet = subparsers.addParser('newwallet', {
     addHelp: true,
@@ -2196,6 +2205,36 @@ BGCL.prototype.handleNewKey = function() {
   this.info('xpub:  ' + key.xpub);
 };
 
+BGCL.prototype.handleEncryptKey = function() {
+  var args = this.args;
+  var self = this;
+  var input = new UserInput(this.args);
+  return Q().then(function() {
+    return input.getVariable('xprv', 'xprv: ', true)();
+  }).then(function() {
+    return input.getVariable('password', 'password to encrypt with: ', true)();
+  }).then(input.getVariable('prefix', "File prefix [default = 'encryptedKey']: ", false, 'encryptedKey'))
+  .then(function() {
+    var key;
+    try {
+      key = bitcoin.HDNode.fromBase58(input.xprv);
+    } catch (e) {
+      throw new Error('Invalid BIP32 key');
+    }
+    var encryptedXprv = self.bitgo.encrypt({
+      password: input.password,
+      input: input.xprv
+    });
+    var params = {
+      "xprv": encryptedXprv,
+      "xpub": key.neutered().toBase58()
+    }
+    var filename = input.prefix + '.json';
+    fs.writeFileSync(filename, JSON.stringify(params, null, 2));
+    console.log('Wrote ' + filename);
+  })
+};
+
 BGCL.prototype.handleNewWallet = function() {
   var args = this.args;
   var self = this;
@@ -3073,6 +3112,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleSendToAddress();
     case 'newkey':
       return this.handleNewKey();
+    case 'encryptkey':
+      return this.handleEncryptKey();  
     case 'splitkeys':
       return this.handleSplitKeys();
     case 'verifysplitkeys':
