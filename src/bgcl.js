@@ -577,6 +577,15 @@ BGCL.prototype.createArgumentParser = function() {
   recoverKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
   recoverKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
 
+  var updateSplitKey = subparsers.addParser('updatesplitkey', {
+    addHelp: true,
+    help: "Update key passwords/schema from an output file of 'splitkeys'"
+  });
+  updateSplitKey.addArgument(['-m'], { help: 'new number of shares required to reconstruct a key' });
+  updateSplitKey.addArgument(['-n'], { help: 'new total number of shares per key' });
+  updateSplitKey.addArgument(['-f', '--file'], { help: 'the input file (JSON format)'});
+  updateSplitKey.addArgument(['-k', '--key'], { help: 'key index to update' });
+
   var dumpWalletUserKey = subparsers.addParser('dumpwalletuserkey', {
     addHelp: true,
     help: "Dumps the user's private key (first key in the 3 multi-sig keys) to the output"
@@ -594,6 +603,17 @@ BGCL.prototype.createArgumentParser = function() {
   createTx.addArgument(['-c', '--comment'], {help: 'optional private comment'});
   createTx.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
   createTx.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
+
+  var createTxFromJson = subparsers.addParser('createtxfromjson', {
+    addHelp: true,
+    help: "Create unsigned transaction (online) to many addresses using json form {str addr: int value_in_satoshis, ...}"
+
+  });
+  createTxFromJson.addArgument(['-j', '--json'], {help: 'json string {str addr: int value_in_satoshis, ...}'});
+  createTxFromJson.addArgument(['-f', '--fee'], {help:'fee to pay for transaction'});
+  createTxFromJson.addArgument(['-c', '--comment'], {help: 'optional private comment'});
+  createTxFromJson.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
+  createTxFromJson.addArgument(['-u', '--unconfirmed'], { nargs: 0, help: 'allow spending unconfirmed external inputs'});
 
   var signTx = subparsers.addParser('signtx', {
     addHelp: true,
@@ -1950,6 +1970,87 @@ BGCL.prototype.handleSendToAddress = function() {
   });
 };
 
+
+BGCL.prototype.handleCreateTxFromJson = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var tx_data;
+
+  return this.ensureWallet()
+  .then(function () {
+    self.walletHeader();
+    self.info('Create Unsigned Transaction From Json File:\n');
+  })
+  .then(input.getVariable('json', 'json string {str address: int value in satoshis,...}:'))
+  .then(input.getVariable('fee', 'Blockchain fee (blank to use default fee calculation): '))
+  .then(input.getVariable('comment', 'Optional private comment: '))
+  .then(function() {
+    tx_data = JSON.parse(input.json);
+    for(var address in tx_data[0]) {
+      if (tx_data.hasOwnProperty(address)) {
+        try {
+          bitcoin.Address.fromBase58Check(address);
+          } catch (e) {
+          throw new Error('Invalid destination address: ' + address);
+        }
+        satoshis = Number(tx_data[address]);
+        if (isNaN(satoshis)) {
+          throw new Error('Invalid amount (non-numeric)');
+        }
+      }  
+    }
+    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
+  })
+  .then(function(wallet) {
+  var params = {
+      recipients: tx_data,
+      minConfirms: input.unconfirmed ? 0 : 1,
+      enforceMinConfirmsForChange: false
+    };
+
+    if (input.fee) {
+      params.fee = Math.floor(Number(input.fee) * 1e8);
+      if (isNaN(params.fee)) {
+        throw new Error('Invalid fee (non-numeric)');
+      }
+    }
+
+    return wallet.createTransaction(params)
+    .catch(function(err) {
+      if (err.needsOTP) {
+        // unlock
+        return self.handleUnlock()
+        .then(function() {
+          // try again
+          return wallet.createTransaction(params);
+        });
+      } else {
+        throw err;
+      }
+    });
+  })
+  .then(function(tx) {
+    self.info('Created unsigned transaction for:\n')
+    var total = 0;
+    for (var address in tx_data) {
+      if (tx_data.hasOwnProperty(address)) {
+        self.info(address + ' ---> ' + self.toBTC(tx_data[address]) + ' BTC');  
+        total = total + tx_data[address]
+      }
+    }
+    self.info('\nBTC blockchain fee: ' + tx.fee/1e8 + ' BTC\n')
+    self.info('Total BTC: ' + self.toBTC(total) + '\n')
+    tx.comment = input.comment;
+    if (!input.prefix) {
+      input.prefix = 'tx' + moment().format('YYYYMDHm');
+    }
+    var filename = input.prefix + '.json';
+    fs.writeFileSync(filename, JSON.stringify(tx, null, 2));
+    console.log('Wrote ' + filename);
+  });
+};
+
+
 BGCL.prototype.handleCreateTx = function() {
   var self = this;
   var input = new UserInput(this.args);
@@ -2402,7 +2503,7 @@ BGCL.prototype.addUserEntropy = function(userString) {
  */
 BGCL.prototype.genSplitKey = function(params, index) {
   var self = this;
-  var key = this.genKey();
+  var key = params.key || this.genKey();
   var result = {
     xpub: key.xpub,
     m: params.m,
@@ -2506,6 +2607,7 @@ BGCL.prototype.handleRecoverKeys = function() {
   var passwords = [];
   var keysToRecover;
 
+
   /**
    * Get a password from the user, testing it against encrypted shares
    * to determine which (if any) index of the shares it corresponds to.
@@ -2608,6 +2710,138 @@ BGCL.prototype.handleRecoverKeys = function() {
       };
     });
     self.printJSON(recoveredKeys);
+  });
+};
+
+/**
+ * update key passwords from the JSON file produced by splitkeys
+ */
+BGCL.prototype.handleUpdateSplitKey = function() {
+  var self = this;
+  var input = new UserInput(this.args);
+  var passwords = [];
+  var key;
+  var keys;
+  var index;
+
+  var getEncryptPassword = function(i, n) {
+    if (i === n) {
+      return;
+    }
+    var passwordName = 'password' + i;
+    return input.getPassword(passwordName, 'Password for share ' + i + ': ', true)()
+    .then(function() {
+      return getEncryptPassword(i+1, n);
+    });
+  };
+
+  /**
+   * Get a password from the user, testing it against encrypted shares
+   * to determine which (if any) index of the shares it corresponds to.
+   *
+   * @param   {Number} i      index of the password (0..n-1)
+   * @param   {Number} n      total number of passwords needed
+   * @param   {String[]}   shares   list of encrypted shares
+   * @returns {Promise}
+   */
+  var getDecryptPassword = function(i, n, shares) {
+    if (i === n) {
+      return;
+    }
+    var passwordName = 'password' + i;
+    return input.getPassword(passwordName, 'Password ' + i + ': ', false)()
+    .then(function() {
+      var password = input[passwordName];
+      var found = false;
+      shares.forEach(function(share, shareIndex) {
+        try {
+          sjcl.decrypt(password, share);
+          if (!passwords.some(function(p) { return p.shareIndex === shareIndex; })) {
+            passwords.push({shareIndex: shareIndex, password: password});
+            found = true;
+          }
+        } catch (err) {}
+      });
+      if (found) {
+        return getDecryptPassword(i+1, n, shares);
+      }
+      console.log('bad password - try again');
+      delete input[passwordName];
+      return getDecryptPassword(i, n, shares);
+    });
+  };
+
+  return Q().then(function() {
+    console.log('Update Split Key passwords and schema');
+    console.log();
+  })
+  .then(input.getVariable('file', 'Input file (JSON): '))
+  .then(input.getVariable('key', 'index to update: '))
+  .then(function() {
+    // Grab the list of keys from the file
+    var json = fs.readFileSync(input.file);
+    keys = JSON.parse(json);
+
+    // Determine and validate the index to update
+    index = parseInt(input.key,10);
+    if (isNaN(index)) {
+      throw new Error('invalid index');
+    }
+    if (index < 0 || index >= keys.length) {
+      throw new Error('index out of range: ' + keys.length + ' keys in file');
+    }
+
+    console.log('Processing key: ' + index);
+
+    // Get the passwords
+    key = keys[index];
+    return getDecryptPassword(0, key.m, key.seedShares);
+  })
+  .then(function() {
+    // Decrypt the shares, recombine into a seed, validating against existing 
+    // xpub.
+    var shares = passwords.map(function(p, i) {
+      console.log('Decrypting Key #' + index + ', Part #' + i);
+      delete input['password' + i];
+      return sjcl.decrypt(p.password, key.seedShares[p.shareIndex]);
+    });
+    if (shares.length === 1) {
+      seed = shares[0];
+    } else {
+      seed = secrets.combine(shares);
+    }
+    var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
+    var xpub = extendedKey.neutered().toBase58();
+    if (xpub !== key.xpub) {
+      throw new Error("xpubs don't match for key " + index);
+    }
+  })
+  .then(input.getIntVariable('n', 'Number of shares per key (N) (new eschema): ', true, 1, 10))
+  .then(function() {
+    var mMin = 2;
+    if (input.n === 1) {
+      mMin = 1;
+    }
+    return input.getIntVariable('m', 'Number of shares required to restore key (M <= N) (new eschema): ', true, mMin, input.n)();
+  })
+  .then(function(){
+    console.log("Generating " + input.n + " new shared secrets for key #" + index + ". set the passwords:");
+    return getEncryptPassword(0, input.n);
+  })
+  .then(function(){
+    // re generate key with new schema and passwords and.
+    // update keys and wirte them back to original json file.
+    var extendedKey = bitcoin.HDNode.fromSeedHex(seed);
+    input['key'] = {
+      seed: seed,
+      xpub: extendedKey.neutered().toBase58(),
+      xprv: extendedKey.toBase58()
+    }
+    var cryptedKey = self.genSplitKey(input);
+    cryptedKey['index'] = index;
+    keys[index] = cryptedKey;
+    fs.writeFileSync(input.file, JSON.stringify(keys, null, 2));
+    console.log('Wrote ' + input.file);
   });
 };
 
@@ -3121,6 +3355,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleRecoverKeys();
     case 'recoverkeys':
       return this.handleRecoverKeys();
+    case 'updatesplitkey':
+      return this.handleUpdateSplitKey();
     case 'dumpwalletuserkey':
       return this.handleDumpWalletUserKey();
     case 'newwallet':
@@ -3133,6 +3369,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleHelp();
     case 'createtx':
       return this.handleCreateTx();
+    case 'createtxfromjson':
+      return this.handleCreateTxFromJson();
     case 'signtx':
       return this.handleSignTx();
     case 'sendtx':
