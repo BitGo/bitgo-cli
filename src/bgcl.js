@@ -3,11 +3,14 @@
 var ArgumentParser = require('argparse').ArgumentParser;
 var bitgo = require('bitgo');
 var bitcoin = bitgo.bitcoin;
+const bitcoinCash = bitgo.bitcoinCash;
 var Transaction = bitcoin.Transaction;
 
 var bs58check = require('bs58check');
 var crypto = require('crypto');
 var Q = require('q');
+const Promise = require('bluebird');
+const co = Promise.coroutine;
 var fs = require('fs');
 var moment = require('moment');
 var read = require('read');
@@ -658,6 +661,13 @@ BGCL.prototype.createArgumentParser = function() {
   recoverLitecoin.addArgument(['-r', '--recipients'], {help: 'JSON dictionary of recipients in { addr1: satoshis }'});
   recoverLitecoin.addArgument(['-p', '--prefix'], { help: 'optional output file prefix' });
 
+  // recover BCH from migrated legacy safehd wallet
+  const recoverBCHFromSafeHD = utilParser.addParser('recoversafehdbch', {
+    addHelp: true,
+    help: 'Helper tool to craft transaction to recover BCH from migrated SafeHD legacy wallets'
+  });
+  recoverBCHFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
+
   // help
   var help = subparsers.addParser('help', {
     addHelp: true,
@@ -672,6 +682,8 @@ BGCL.prototype.handleUtil = function() {
   switch (this.args.utilCmd) {
     case 'recoverlitecoin':
       return this.handleRecoverLitecoin();
+    case 'recoversafehdbch':
+      return this.handleRecoverBCHFromSafeHD();
     default:
       throw new Error('unknown command');
   }
@@ -2806,6 +2818,147 @@ BGCL.prototype.handleRemoveWebhook = function() {
     console.error(err);
   });
 };
+
+BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
+  const input = new UserInput(this.args);
+  // ensure a wallet is selected
+  yield this.ensureWallet();
+  yield input.getVariable('dest', 'Destination address: ')();
+  const destinationAddress = input.dest;
+  try {
+    bitcoinCash.address.fromBase58Check(destinationAddress);
+  } catch (e) {
+    throw new Error('Invalid destination address');
+  }
+
+  const bch = this.bitgo.coin('bch');
+  const bchWallets = yield bch.wallets().list();
+  const migratedWallet = _.find(bchWallets.wallets, w => w._wallet.migratedFrom === this.session.wallet.id());
+
+  const amount = migratedWallet.spendableBalance() - 0.02 * 1e8; // we can't spend everything, but it's just $25
+  const txPrebuild = yield migratedWallet.prebuildTransaction({
+    recipients: [{
+      address: destinationAddress,
+      amount: amount
+    }]
+  });
+
+  yield input.getVariable('password', 'Wallet password: ')();
+  const signingKeychain = yield this.session.wallet.getAndPrepareSigningKeychain({ walletPassphrase: input.password });
+  const rootExtKey = bitcoinCash.HDNode.fromBase58(signingKeychain.xprv);
+  const hdPath = bitcoinCash.hdPath(rootExtKey);
+
+  // sign the transaction
+  let transaction = bitcoinCash.Transaction.fromHex(txPrebuild.txHex);
+
+  if (transaction.ins.length !== txPrebuild.txInfo.unspents.length) {
+    throw new Error('length of unspents array should equal to the number of transaction inputs');
+  }
+
+  const txb = bitcoinCash.TransactionBuilder.fromTransaction(transaction);
+  txb.enableBitcoinCash(true);
+  txb.setVersion(2);
+
+
+  const sigHashType = bitcoinCash.Transaction.SIGHASH_ALL | bitcoinCash.Transaction.SIGHASH_BITCOINCASHBIP143;
+  for (let inputIndex = 0; inputIndex < transaction.ins.length; ++inputIndex) {
+    // get the current unspent
+    const currentUnspent = txPrebuild.txInfo.unspents[inputIndex];
+    const chainPath = '/' + currentUnspent.chain + '/' + currentUnspent.index;
+    const subPath = signingKeychain.walletSubPath || '/0/0';
+    const path = signingKeychain.path + subPath + chainPath;
+    // derive the correct key
+    const privKey = hdPath.deriveKey(path);
+    const value = currentUnspent.value;
+
+    // do the signature flow
+    const subscript = new Buffer(currentUnspent.redeemScript, 'hex');
+    try {
+      txb.sign(inputIndex, privKey, subscript, sigHashType, value);
+      // gotta keep updating
+      transaction = txb.buildIncomplete();
+    } catch (e) {
+      e.result = {
+        unspent: currentUnspent
+      };
+      e.message = `${e.message} — ${JSON.stringify(e.result, null, 4)}`;
+      console.trace(e);
+      throw new Error('Failed to sign input #' + inputIndex);
+    }
+
+
+    // now, let's verify the signature
+    const currentTransactionInput = transaction.ins[inputIndex];
+    let sigScript = currentTransactionInput.script;
+    let sigsNeeded = 1;
+    const sigs = [];
+    const pubKeys = [];
+    let decompiledSigScript = bitcoinCash.script.decompile(sigScript);
+
+    const inputClassification = bitcoinCash.script.classifyInput(sigScript, true);
+    if (inputClassification !== 'scripthash') {
+      throw new Error('bad input classification');
+    }
+    // Replace the pubScript with the P2SH Script.
+    const pubScript = decompiledSigScript[decompiledSigScript.length - 1];
+    const decompiledPubScript = bitcoinCash.script.decompile(pubScript);
+    sigsNeeded = decompiledPubScript[0] - bitcoinCash.opcodes.OP_1 + 1;
+    for (let signatureIndex = 1; signatureIndex < decompiledSigScript.length - 1; ++signatureIndex) {
+      sigs.push(decompiledSigScript[signatureIndex]);
+    }
+    for (let pubkeyIndex = 1; pubkeyIndex < decompiledPubScript.length - 2; ++pubkeyIndex) {
+      // we minus 1 because the key indexes start from the second chunk (first chunk is used for total keys)
+      pubKeys.push(decompiledPubScript[pubkeyIndex]);
+    }
+
+    let numVerifiedSignatures = 0;
+    for (let sigIndex = 0; sigIndex < sigs.length; ++sigIndex) {
+      // If this is an OP_0, then its been left as a placeholder for a future sig.
+      if (sigs[sigIndex] === bitcoinCash.opcodes.OP_0) {
+        continue;
+      }
+
+      const hashType = sigs[sigIndex][sigs[sigIndex].length - 1];
+      sigs[sigIndex] = sigs[sigIndex].slice(0, sigs[sigIndex].length - 1); // pop hash type from end
+      let signatureHash;
+      signatureHash = transaction.hashForCashSignature(inputIndex, pubScript, value, hashType);
+
+      let validSig = false;
+
+      // Enumerate the possible public keys
+      for (let pubKeyIndex = 0; pubKeyIndex < pubKeys.length; ++pubKeyIndex) {
+        const pubKey = bitcoinCash.ECPair.fromPublicKeyBuffer(pubKeys[pubKeyIndex]);
+        const signature = bitcoinCash.ECSignature.fromDER(sigs[sigIndex]);
+        validSig = pubKey.verify(signatureHash, signature);
+        if (validSig) {
+          pubKeys.splice(pubKeyIndex, 1);  // remove the pubkey so we can't match 2 sigs against the same pubkey
+          break;
+        }
+      }
+      if (!validSig) {
+        throw new Error('invalid signature for index ' + inputIndex);
+      }
+      numVerifiedSignatures++;
+    }
+
+    // count the number of verified signatures
+    if (numVerifiedSignatures !== 1) {
+      throw new Error('bad number of verified sigs');
+    }
+
+  }
+
+  const halfSignedTx = txb.buildIncomplete().toHex();
+  this.info('Half-signed transaction: ' + halfSignedTx);
+
+  const sendUrl = migratedWallet.url('/tx/send');
+  const fullySignedTx = yield this.bitgo.post(sendUrl)
+  .send({
+    txHex: halfSignedTx,
+  })
+  .result();
+  this.info('Signed Transaction: ' + JSON.stringify(fullySignedTx, null, 4));
+});
 
 /**
  * Aids in the recovery of Litecoin that was sent to a BitCoin address
