@@ -4,7 +4,6 @@ const ArgumentParser = require('argparse').ArgumentParser;
 const bitgo = require('bitgo');
 const bitcoin = bitgo.bitcoin;
 const bitcoinCash = bitgo.bitcoinCash;
-const Transaction = bitcoin.Transaction;
 
 const bs58check = require('bs58check');
 const crypto = require('crypto');
@@ -48,7 +47,7 @@ function jsonFilename(name) {
 
 function loadJSON(name) {
   try {
-    data = fs.readFileSync(jsonFilename(name), { encoding: 'utf8' });
+    const data = fs.readFileSync(jsonFilename(name), { encoding: 'utf8' });
     return JSON.parse(data);
   } catch (e) {
     return undefined;
@@ -93,7 +92,6 @@ UserInput.prototype.prompt = function(question, required) {
 UserInput.prototype.promptPassword = function(question, allowBlank) {
   const self = this;
   const internalPromptPassword = function() {
-    const answer = '';
     const deferred = Q.defer();
     read({ prompt: question, silent: true, replace: '*' }, function(err, result) {
       if (err) {
@@ -124,7 +122,7 @@ UserInput.prototype.getVariable = function(name, question, required, defaultValu
         return;
       }
       return Q().then(function() {
-        if (name == 'password' || name == 'passcode') {
+        if (name === 'password' || name === 'passcode') {
           return self.promptPassword(question);
         } else {
           return self.prompt(question, required);
@@ -174,7 +172,8 @@ UserInput.prototype.getIntVariable = function(name, question, required, min, max
   return function() {
     return self.getVariable(name, question, required)()
     .then(function() {
-      const value = parseInt(self[name]);
+      const value = parseInt(self[name], 10);
+      // eslint-disable-next-line
       if (value != self[name]) {
         throw new Error('integer value required');
       }
@@ -288,6 +287,7 @@ const BGCL = function() {
 };
 
 BGCL.prototype.createArgumentParser = function() {
+  /* eslint-disable no-unused-vars */
   const parser = new ArgumentParser({
     version: CLI_VERSION,
     addHelp: true,
@@ -674,6 +674,7 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Display help'
   });
   help.addArgument(['command'], { nargs: '?' });
+  /* eslint-enable no-unused-vars */
 
   return parser;
 };
@@ -1050,7 +1051,7 @@ BGCL.prototype.printWalletList = function(wallets) {
     let balance = self.toBTC(w.balance());
     balance = _.string.pad(balance, 10) + ' BTC';
 
-    const marker = self.session.wallet.id() == w.id() ? '>> ' : '   ';
+    const marker = self.session.wallet.id() === w.id() ? '>> ' : '   ';
     return marker + _.string.pad(index, width) + '  ' + w.id() + '  ' + balance + '  ' + _.string.prune(w.label(), 20);
   });
   console.log(rows.join('\n'));
@@ -1074,7 +1075,8 @@ BGCL.prototype.handleWallets = function(setWallet) {
         return [newWallet];
       });
     } catch (e) {
-      const walletIndex = parseInt(setWallet);
+      const walletIndex = parseInt(setWallet, 10);
+      // eslint-disable-next-line
       if (walletIndex == setWallet) {
         setWalletType = 'index';
         setWallet = walletIndex;
@@ -1313,7 +1315,7 @@ BGCL.prototype.handleAddresses = function() {
     console.log(rows.join('\n'));
   };
 
-  var self = this;
+  const self = this;
   if (!this.session.wallet) {
     throw new Error('No current wallet.');
   }
@@ -1324,20 +1326,19 @@ BGCL.prototype.handleAddresses = function() {
     queries.push(wallet.addresses({ chain: 1, limit: 200, details: '1' }));
   }
 
-  // JSON output
-  if (this.args.json) {
-    const json = {
-      receive: receiveAddresses.addresses
-    };
-    if (changeAddresses) {
-      json.change = changeAddresses.addresses;
-    }
-    return this.printJSON(json);
-  }
-
-  // normal output
-  this.walletHeader();
   return Q.spread(queries, function(receiveAddresses, changeAddresses) {
+    // JSON output
+    if (self.args.json) {
+      const json = {
+        receive: receiveAddresses.addresses
+      };
+      if (changeAddresses) {
+        json.change = changeAddresses.addresses;
+      }
+      return this.printJSON(json);
+    }
+    // normal output
+    self.walletHeader();
     self.info('\nReceive Addresses:');
     printAddressList(receiveAddresses.addresses);
     if (changeAddresses) {
@@ -1493,7 +1494,7 @@ BGCL.prototype.handleConsolidateUnspents = function() {
   }
 
   if (Number.isInteger(this.args.minConfirms) && this.args.minConfirms >= 0) {
-    minConfirms = this.args.minConfirms;
+    params.minConfirms = this.args.minConfirms;
   }
 
   return this.ensureWallet()
@@ -1519,7 +1520,6 @@ BGCL.prototype.handleConsolidateUnspents = function() {
 BGCL.prototype.handleTxList = function() {
   const printTxList = function(txlist) {
     const rows = txlist.map(function(tx) {
-      const txid = tx.transactionId.substr(0, 8);
       const date = new moment(tx.date).format('YYYY-MM-DD HH:mm');
       let inout = tx.amount > 0 ? 'recv' : 'send';
       let prep = tx.amount > 0 ? 'on' : 'to';
@@ -1531,7 +1531,7 @@ BGCL.prototype.handleTxList = function() {
       if (tx.amount > 0) {
         amount = '+' + amount;
       }
-      const pending = tx.state == 'unconfirmed' ? '* ' : '  ';
+      const pending = tx.state === 'unconfirmed' ? '* ' : '  ';
       let target = '';
       if (tx.otherWalletId) {
         if (tx.otherWalletId === tx.walletId) {
@@ -1571,7 +1571,7 @@ BGCL.prototype.handleTxList = function() {
 
   const transactions = [];
 
-  var getTransactions = function(skip, target) {
+  const getTransactions = function(skip, target) {
     let limit = target - transactions.length;
     if (limit <= 0) {
       return;
@@ -1593,7 +1593,7 @@ BGCL.prototype.handleTxList = function() {
     });
   };
 
-  var self = this;
+  const self = this;
   if (!this.session.wallet) {
     throw new Error('No current wallet.');
   }
@@ -1661,7 +1661,6 @@ BGCL.prototype.handleLock = function() {
 
 BGCL.prototype.handleShares = function() {
   const self = this;
-  const input = new UserInput(this.args);
   let shares;
 
   const printShareList = function(shares, users, incoming) {
@@ -1694,7 +1693,6 @@ BGCL.prototype.handleShares = function() {
   })
   .then(function(result) {
     shares = result;
-    const allShares = shares.incoming.concat(shares.outgoing);
     let userIds = _.pluck(shares.incoming, 'fromUser');
     userIds = userIds.concat(_.pluck(shares.outgoing, 'toUser'));
     userIds = _.uniq(userIds);
@@ -1799,7 +1797,7 @@ BGCL.prototype.handleAcceptShare = function() {
     if (result.changed) {
       self.action('Wallet share ' + result.state);
       if (result.state === 'accepted') {
-        return self.handleWallets(shareToResolve.walletId);
+        return self.handleWallets(result.walletId);
       }
     } else {
       self.info('Wallet share was already accepted');
@@ -2091,7 +2089,7 @@ BGCL.prototype.handleSignTx = function() {
 
     for (let i = 0; i < transaction.outs.length; i++) {
       let outputAddress = bitcoin.address.fromOutputScript(transaction.outs[i].script, bitcoin.getNetwork());
-      if (changeAddress == outputAddress) {
+      if (changeAddress === outputAddress) {
         outputAddress += ' (verified change address back to wallet)';
       }
       self.info('Output #' + (i + 1) + ': ' + transaction.outs[i].value / 1e8 + ' BTC to ' + outputAddress);
@@ -2143,7 +2141,7 @@ BGCL.prototype.handleSendTx = function() {
         input.file = input.txInput;
       } else {
         try {
-          const transaction = bitcoin.Transaction.fromHex(input.txInput);
+          bitcoin.Transaction.fromHex(input.txInput);
         } catch (e) {
           throw new Error('Input was not a valid path or transaction hex');
         }
@@ -2217,7 +2215,6 @@ BGCL.prototype.handleNewKey = function() {
 };
 
 BGCL.prototype.handleEncryptKey = function() {
-  const args = this.args;
   const self = this;
   const input = new UserInput(this.args);
   return Q().then(function() {
@@ -2247,7 +2244,6 @@ BGCL.prototype.handleEncryptKey = function() {
 };
 
 BGCL.prototype.handleNewWallet = function() {
-  const args = this.args;
   const self = this;
   const input = new UserInput(this.args);
 
@@ -2258,7 +2254,7 @@ BGCL.prototype.handleNewWallet = function() {
   let backupKeychain;
   let bitgoKeychain;
 
-  var getPassword = function() {
+  const getPassword = function() {
     return input.getPassword('password', 'Enter BitGo password: ')()
     .then(function() {
       return self.bitgo.verifyPassword({ password: input.password });
@@ -2450,7 +2446,7 @@ BGCL.prototype.handleSplitKeys = function() {
   const self = this;
   const input = new UserInput(this.args);
 
-  var getPassword = function(i, n) {
+  const getPassword = function(i, n) {
     if (i === n) {
       return;
     }
@@ -2526,7 +2522,7 @@ BGCL.prototype.handleRecoverKeys = function() {
    * @param   {String[]}   shares   list of encrypted shares
    * @returns {Promise}
    */
-  var getPassword = function(i, n, shares) {
+  const getPassword = function(i, n, shares) {
     if (i === n) {
       return;
     }
@@ -2542,7 +2538,9 @@ BGCL.prototype.handleRecoverKeys = function() {
             passwords.push({ shareIndex: shareIndex, password: password });
             found = true;
           }
-        } catch (err) {}
+        } catch (err) {
+          console.error(err);
+        }
       });
       if (found) {
         return getPassword(i + 1, n, shares);
@@ -2629,8 +2627,6 @@ BGCL.prototype.handleRecoverKeys = function() {
 BGCL.prototype.handleDumpWalletUserKey = function() {
   const self = this;
   const input = new UserInput(this.args);
-  let params;
-  let wallet;
 
   return self.ensureWallet()
   .then(function() {
@@ -2755,7 +2751,6 @@ function printWebhookList(webhooks) {
 }
 
 BGCL.prototype.handleListWebhooks = function() {
-  const self = this;
   const wallet = this.session.wallet;
 
   if (!wallet) {
@@ -2774,7 +2769,6 @@ BGCL.prototype.handleListWebhooks = function() {
 };
 
 BGCL.prototype.handleAddWebhook = function() {
-  const self = this;
   const wallet = this.session.wallet;
   const input = new UserInput(this.args);
 
@@ -2797,7 +2791,6 @@ BGCL.prototype.handleAddWebhook = function() {
 };
 
 BGCL.prototype.handleRemoveWebhook = function() {
-  const self = this;
   const wallet = this.session.wallet;
   const input = new UserInput(this.args);
 
@@ -2889,7 +2882,6 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
     // now, let's verify the signature
     const currentTransactionInput = transaction.ins[inputIndex];
     const sigScript = currentTransactionInput.script;
-    let sigsNeeded = 1;
     const sigs = [];
     const pubKeys = [];
     const decompiledSigScript = bitcoinCash.script.decompile(sigScript);
@@ -2901,7 +2893,6 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
     // Replace the pubScript with the P2SH Script.
     const pubScript = decompiledSigScript[decompiledSigScript.length - 1];
     const decompiledPubScript = bitcoinCash.script.decompile(pubScript);
-    sigsNeeded = decompiledPubScript[0] - bitcoinCash.opcodes.OP_1 + 1;
     for (let signatureIndex = 1; signatureIndex < decompiledSigScript.length - 1; ++signatureIndex) {
       sigs.push(decompiledSigScript[signatureIndex]);
     }
@@ -2919,8 +2910,7 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
 
       const hashType = sigs[sigIndex][sigs[sigIndex].length - 1];
       sigs[sigIndex] = sigs[sigIndex].slice(0, sigs[sigIndex].length - 1); // pop hash type from end
-      let signatureHash;
-      signatureHash = transaction.hashForCashSignature(inputIndex, pubScript, value, hashType);
+      const signatureHash = transaction.hashForCashSignature(inputIndex, pubScript, value, hashType);
 
       let validSig = false;
 
@@ -3033,9 +3023,9 @@ BGCL.prototype.handleRecoverLitecoin = function() {
           currentUnspents.map((currentUnspent) => {
             const [txid, nOut] = currentUnspent.id.split(':');
             currentUnspent.tx = txid;
-            currentUnspent.nOut = parseInt(nOut);
+            currentUnspent.nOut = parseInt(nOut, 10);
             currentUnspent.amount = currentUnspent.value;
-            addressAmount += parseInt(currentUnspent.amount);
+            addressAmount += parseInt(currentUnspent.amount, 10);
           });
           return { address: newAddress, amount: addressAmount, unspents: currentUnspents };
         });
@@ -3080,7 +3070,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
             txHash: unspent.tx,
             txOutputN: unspent.nOut,
             txValue: amount,
-            value: parseInt(unspent.value)
+            value: parseInt(unspent.value, 10)
           });
 
           // Actually add to transaction as input
