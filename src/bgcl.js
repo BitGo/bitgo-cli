@@ -3,11 +3,14 @@
 const ArgumentParser = require('argparse').ArgumentParser;
 const bitgo = require('bitgo');
 const bitcoin = bitgo.bitcoin;
+const bitcoinCash = bitgo.bitcoinCash;
 const Transaction = bitcoin.Transaction;
 
 const bs58check = require('bs58check');
 const crypto = require('crypto');
 const Q = require('q');
+const Promise = require('bluebird');
+const co = Promise.coroutine;
 const fs = require('fs');
 const moment = require('moment');
 const read = require('read');
