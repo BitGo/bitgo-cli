@@ -664,7 +664,8 @@ BGCL.prototype.createArgumentParser = function() {
   // recover BCH from migrated legacy safehd wallet
   const recoverBCHFromSafeHD = utilParser.addParser('recoversafehdbch', {
     addHelp: true,
-    help: 'Helper tool to craft transaction to recover BCH from migrated SafeHD legacy wallets'
+    help: 'Helper tool to craft transaction to recover BCH from migrated legacy SafeHD wallets',
+    usage: 'First, select the legacy SafeHD wallet from which you would like to recover the BCH:\n\tbitgo wallet [wallet]\nThen, run this command:\n\tbitgo util recoversafehdbch [-h] [-d DEST]'
   });
   recoverBCHFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
 
@@ -2939,6 +2940,8 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
 
   const halfSignedTx = txb.buildIncomplete().toHex();
   this.info('Half-signed transaction: ' + halfSignedTx);
+
+  yield this.handleUnlock();
 
   const sendUrl = migratedWallet.url('/tx/send');
   const fullySignedTx = yield this.bitgo.post(sendUrl)

@@ -593,9 +593,12 @@ Webhooks:
    -h, --help         Show this help message and exit.
 
  Utility commands:
-   {recoverlitecoin}
-     recoverlitecoin  Helper tool to craft transaction to recover Litecoin
-                      mistakenly sent to BitGo Bitcoin multisig addresses on
-                      the Litecoin network
+  {recoverlitecoin,recoversafehdbch}
+    recoverlitecoin     Helper tool to craft transaction to recover Litecoin 
+                        mistakenly sent to BitGo Bitcoin multisig addresses 
+                        on the Litecoin network
+    recoversafehdbch    Helper tool to craft transaction to recover BCH from 
+                        migrated legacy SafeHD wallets
+
  ```
 
