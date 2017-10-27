@@ -7,7 +7,9 @@
     "bitgo": "bin/bitgo"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "setup": "git submodule add https://github.com/tagview/arcanist-extensions.git .arcanist-extensions; npm install -g eslint; git submodule update --init",
+    "lint": "./node_modules/.bin/eslint --ext .js ."
   },
   "repository": {
     "type": "git",
@@ -45,6 +47,7 @@
     "underscore.string": "2.4.0"
   },
   "devDependencies": {
+    "eslint": "4.8.0",
     "mocha": "^3.4.2"
   },
   "preferGlobal": true

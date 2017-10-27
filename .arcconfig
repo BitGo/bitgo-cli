@@ -1,3 +1,7 @@
 {
-  "phabricator.uri" : "https://phabricator.bitgo.com"
+  "phabricator.uri" : "https://phabricator.bitgo.com",
+
+  "load": [
+    ".arcanist-extensions/eslint_linter"
+  ]
 }

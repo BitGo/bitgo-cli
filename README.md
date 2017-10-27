@@ -601,4 +601,13 @@ Webhooks:
                         migrated legacy SafeHD wallets
 
  ```
+ 
+# Developing
+
+**For developers on bitgo-cli, the following commands must be run before writing new code.**
+```
+$ npm install
+$ npm run setup
+```
+
 
