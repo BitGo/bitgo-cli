@@ -2828,7 +2828,7 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
   const bchWallets = yield bch.wallets().list();
   const migratedWallet = _.find(bchWallets.wallets, w => w._wallet.migratedFrom === this.session.wallet.id());
 
-  const amount = migratedWallet.spendableBalance() - 0.02 * 1e8; // we can't spend everything, but it's just $25
+  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - 0.005 * 1e8; // we can't spend everything, but it's just $25
   const txPrebuild = yield migratedWallet.prebuildTransaction({
     recipients: [{
       address: destinationAddress,
