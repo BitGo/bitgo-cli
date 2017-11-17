@@ -47,7 +47,7 @@
     "underscore.string": "2.4.0"
   },
   "devDependencies": {
-    "eslint": "4.8.0",
+    "eslint": "^4.11.0",
     "mocha": "^3.4.2"
   },
   "preferGlobal": true

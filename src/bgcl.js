@@ -2979,7 +2979,7 @@ BGCL.prototype.handleRecoverLitecoin = function() {
 
   const resultJSON = {
     inputs: [],
-    tx: '' //hex goes here
+    tx: '' // hex goes here
   };
 
   return this.ensureWallet()
@@ -3309,7 +3309,7 @@ BGCL.prototype.run = function() {
 
   const self = this;
   Q().then(function() {
-    //console.error();
+    // console.error();
     return self.runCommandHandler(self.args.cmd);
   })
   .catch(function(err) {
