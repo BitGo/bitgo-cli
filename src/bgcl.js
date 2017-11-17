@@ -3,7 +3,6 @@
 const ArgumentParser = require('argparse').ArgumentParser;
 const bitgo = require('bitgo');
 const bitcoin = bitgo.bitcoin;
-const bitcoinCash = bitgo.bitcoinCash;
 
 const bs58check = require('bs58check');
 const crypto = require('crypto');
@@ -2819,7 +2818,7 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
   yield input.getVariable('dest', 'Destination address: ')();
   const destinationAddress = input.dest;
   try {
-    bitcoinCash.address.fromBase58Check(destinationAddress);
+    bitcoin.address.fromBase58Check(destinationAddress);
   } catch (e) {
     throw new Error('Invalid destination address');
   }
@@ -2838,22 +2837,22 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
 
   yield input.getVariable('password', 'Wallet password: ')();
   const signingKeychain = yield this.session.wallet.getAndPrepareSigningKeychain({ walletPassphrase: input.password });
-  const rootExtKey = bitcoinCash.HDNode.fromBase58(signingKeychain.xprv);
-  const hdPath = bitcoinCash.hdPath(rootExtKey);
+  const rootExtKey = bitcoin.HDNode.fromBase58(signingKeychain.xprv);
+  const hdPath = bitcoin.hdPath(rootExtKey);
 
   // sign the transaction
-  let transaction = bitcoinCash.Transaction.fromHex(txPrebuild.txHex);
+  let transaction = bitcoin.Transaction.fromHex(txPrebuild.txHex);
 
   if (transaction.ins.length !== txPrebuild.txInfo.unspents.length) {
     throw new Error('length of unspents array should equal to the number of transaction inputs');
   }
 
-  const txb = bitcoinCash.TransactionBuilder.fromTransaction(transaction);
+  const txb = bitcoin.TransactionBuilder.fromTransaction(transaction);
   txb.enableBitcoinCash(true);
   txb.setVersion(2);
 
 
-  const sigHashType = bitcoinCash.Transaction.SIGHASH_ALL | bitcoinCash.Transaction.SIGHASH_BITCOINCASHBIP143;
+  const sigHashType = bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143;
   for (let inputIndex = 0; inputIndex < transaction.ins.length; ++inputIndex) {
     // get the current unspent
     const currentUnspent = txPrebuild.txInfo.unspents[inputIndex];
@@ -2885,15 +2884,15 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
     const sigScript = currentTransactionInput.script;
     const sigs = [];
     const pubKeys = [];
-    const decompiledSigScript = bitcoinCash.script.decompile(sigScript);
+    const decompiledSigScript = bitcoin.script.decompile(sigScript);
 
-    const inputClassification = bitcoinCash.script.classifyInput(sigScript, true);
+    const inputClassification = bitcoin.script.classifyInput(sigScript, true);
     if (inputClassification !== 'scripthash') {
       throw new Error('bad input classification');
     }
     // Replace the pubScript with the P2SH Script.
     const pubScript = decompiledSigScript[decompiledSigScript.length - 1];
-    const decompiledPubScript = bitcoinCash.script.decompile(pubScript);
+    const decompiledPubScript = bitcoin.script.decompile(pubScript);
     for (let signatureIndex = 1; signatureIndex < decompiledSigScript.length - 1; ++signatureIndex) {
       sigs.push(decompiledSigScript[signatureIndex]);
     }
@@ -2905,7 +2904,7 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
     let numVerifiedSignatures = 0;
     for (let sigIndex = 0; sigIndex < sigs.length; ++sigIndex) {
       // If this is an OP_0, then its been left as a placeholder for a future sig.
-      if (sigs[sigIndex] === bitcoinCash.opcodes.OP_0) {
+      if (sigs[sigIndex] === bitcoin.opcodes.OP_0) {
         continue;
       }
 
@@ -2917,8 +2916,8 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
 
       // Enumerate the possible public keys
       for (let pubKeyIndex = 0; pubKeyIndex < pubKeys.length; ++pubKeyIndex) {
-        const pubKey = bitcoinCash.ECPair.fromPublicKeyBuffer(pubKeys[pubKeyIndex]);
-        const signature = bitcoinCash.ECSignature.fromDER(sigs[sigIndex]);
+        const pubKey = bitcoin.ECPair.fromPublicKeyBuffer(pubKeys[pubKeyIndex]);
+        const signature = bitcoin.ECSignature.fromDER(sigs[sigIndex]);
         validSig = pubKey.verify(signatureHash, signature);
         if (validSig) {
           pubKeys.splice(pubKeyIndex, 1);  // remove the pubkey so we can't match 2 sigs against the same pubkey
