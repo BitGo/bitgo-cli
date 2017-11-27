@@ -604,10 +604,9 @@ Webhooks:
  
 # Developing
 
-**For developers on bitgo-cli, the following commands must be run before writing new code.**
+**For developers on bitgo-cli, the following must be run before writing new code.**
 ```bash
 $ npm install
-$ npm run setup
 ```
 
 
