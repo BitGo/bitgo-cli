@@ -660,6 +660,15 @@ BGCL.prototype.createArgumentParser = function() {
   recoverLitecoin.addArgument(['-r', '--recipients'], { help: 'JSON dictionary of recipients in { addr1: satoshis }' });
   recoverLitecoin.addArgument(['-p', '--prefix'], { help: 'optional output file prefix' });
 
+  const recoverBch = utilParser.addParser('recoverBch', {
+    addHelp: true,
+    help: 'Helper tool to craft transaction to recover BCH mistakenly sent to BitGo Bitcoin multisig addresses on the BTC network'
+  });
+  recoverBch.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
+  recoverBch.addArgument(['-d', '--destaddress'], { help: 'The destination address recovered funds should be sent to.' });
+  recoverBch.addArgument(['-p', '--prefix'], { help: 'optional output file prefix' });
+  recoverBch.addArgument(['--test'], { help: 'use testnet' });
+
   // recover BCH from migrated legacy safehd wallet
   const recoverBCHFromSafeHD = utilParser.addParser('recoversafehdbch', {
     addHelp: true,
@@ -683,6 +692,8 @@ BGCL.prototype.handleUtil = function() {
   switch (this.args.utilCmd) {
     case 'recoverlitecoin':
       return this.handleRecoverLitecoin();
+    case 'recoverBch':
+      return this.handleRecoverBCHFromBTCNonSegWit();
     case 'recoversafehdbch':
       return this.handleRecoverBCHFromSafeHD();
     default:
@@ -3192,6 +3203,221 @@ BGCL.prototype.handleRecoverLitecoin = function() {
   });
 };
 
+/**
+ * Aids in the recovery of BCH that was sent to a Bitcoin (non-SegWit) address
+ * It creates a half signed transaction using the users private keys and
+ * then needs to be signed by BitGo for the transaction to be complete.
+ * This function only works on BCH mainnet.
+ *
+ * The user must initially input the faulty tx id and a destination address for recovery.
+ * This build and apply a signature to a recovery transaction, which can then be submitted
+ * to BitGo for cosigning and broadcasting.
+ */
+BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
+  const printSeparator = () => { this.info(_.repeat('=', 80)); };
+
+  // Find unspents on BCH Chain
+  const input = new UserInput(this.args);
+
+  this.info('This tool will help you construct a transaction to recover BCH mistakenly sent to a non-SegWit BTC address.');
+
+  printSeparator();
+
+  yield input.getVariable('bchWalletId', 'Please enter the wallet ID the faulty transaction originated from: ', true)();
+  // Right now, we need this, but once we have getWalletByAddress we can remove this
+  yield input.getVariable('btcWalletId', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
+  yield input.getVariable('faultyTx', 'Please enter the transaction ID of your faulty transaction: ', true)();
+  yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BCH to: ', true)();
+
+  printSeparator();
+
+  const { faultyTx, recoveryAddress, bchWalletId, btcWalletId } = input;
+
+  let coin;
+  let btcCoin;
+  let network;
+
+  if (this.args.test) {
+    coin = this.bitgo.coin('tbch');
+    btcCoin = this.bitgo.coin('tbtc');
+    network = bitcoin.networks.testnet;
+  } else {
+    coin = this.bitgo.coin('bch');
+    btcCoin = this.bitgo.coin('btc');
+    network = bitcoin.networks.bitcoin;
+  }
+
+  const recoveryTx = new bitcoin.TransactionBuilder(network);
+  recoveryTx.enableBitcoinCash(true);
+  recoveryTx.setVersion(2);
+
+  // Fetch the wallet and make sure it belongs to user
+  const bchWallet = yield coin.wallets().get({ id: bchWalletId });
+
+  if (!bchWallet) {
+    throw new Error(`BCH wallet with ID ${bchWalletId} not found`);
+  }
+  
+  let btcWallet;
+  try {
+    btcWallet = yield btcCoin.wallets().get({ id: btcWalletId });
+  } catch (e) {
+    if (e.status !== 404) {
+      throw e;
+    }
+  }
+
+  if (!btcWallet) {
+    this.info('Could not find v2 btc wallet. Falling back to v1...');
+    try {
+      btcWallet = yield this.bitgo.wallets().get({ id: btcWalletId });
+    } catch (e) {
+      if (e.status !== 404) {
+        throw e;
+      }
+
+      throw new Error(`Could not find BTC wallet.`);
+    }
+  }
+
+  let res = yield bchWallet.addresses({});
+  const bchWalletAddresses = res.addresses;
+  res = yield btcWallet.addresses({});
+  const btcWalletAddresses = res.addresses;
+
+  this.info('Grabbing info for faulty tx...');
+
+  // Use tx to fetch outputs addresses
+  const TX_INFO_URL = coin.url(`/public/tx/${faultyTx}`);
+  res = yield request.get(TX_INFO_URL);
+  const faultyTxInfo = res.body;
+
+  this.info('Getting unspents on output addresses...');
+
+  // Get output addresses that do not belong to wallet
+  // These are where the 'lost coins' live
+  const outputAddresses = faultyTxInfo.outputs
+    .map((input) => input.address)
+    .filter((address) => !_.find(bchWalletAddresses, { address }));
+
+
+  // Get unspents for addresses
+  const ADDRESS_UNSPENTS_URL = coin.url(`/public/addressUnspents/${outputAddresses.join(',')}`);
+  res = yield request.get(ADDRESS_UNSPENTS_URL);
+  const unspents = res.body;
+  const txInfo = { unspents: [] };
+
+  this.info('Building inputs for recovery transaction...');
+
+  let totalFound = 0;
+  unspents.forEach((unspent) => {
+    if (unspent.witnessScript) {
+      throw new Error('Warning! It appears one of the unspents is on a Segwit address. The tool only recovers BCH from non-Segwit BTC addresses. Aborting.');
+    }
+
+    this.info(`Found ${unspent.value * 1e-8} BCH at address ${unspent.address}`);
+    const unspentAddress = btcWalletAddresses.find((address) => address.address === unspent.address);
+
+    const [txHash, index] = unspent.id.split(':');
+    const inputIndex = parseInt(index, 10);
+    let hash = new Buffer(txHash, 'hex');
+    hash = new Buffer(Array.prototype.reverse.call(hash));
+
+    try {
+      recoveryTx.addInput(hash, inputIndex);
+    } catch (e) {
+      console.trace(e);
+      throw new Error(`Error adding unspent ${unspent.id}`);
+    }
+
+    txInfo.unspents.push(Object.assign({}, unspent, {
+      redeemScript: unspentAddress.coinSpecific.redeemScript,
+      index: index,
+      chain: unspentAddress.chain
+    }));
+    totalFound += parseInt(unspent.value, 10);
+  });
+
+  // Normalize total found to base unit before we print it out
+  this.info(`Found lost ${totalFound * 1e-8} BCH.`);
+  this.info(`Building outputs for recovery transaction. Funds will be sent to ${recoveryAddress}...`);
+
+  // Determine fee with default fee rate
+  const P2SH_INPUT_SIZE = 295;
+  const OUTPUT_SIZE = 34;
+  const TX_OVERHEAD_SIZE = 10;
+  const DEFAULT_BCH_FEE_RATE = 20;
+
+  const txSize = P2SH_INPUT_SIZE * recoveryTx.tx.ins.length + OUTPUT_SIZE + TX_OVERHEAD_SIZE;
+  const recoveryFee = DEFAULT_BCH_FEE_RATE * txSize;
+
+  const outputAmount = totalFound - recoveryFee;
+
+  if (outputAmount <= 0) {
+    throw new Error('This recovery transaction cannot pay its own fees. Aborting.');
+  }
+
+  recoveryTx.addOutput(recoveryAddress, outputAmount);
+
+  this.info('Built inputs and outputs. Signing the transaction...');
+
+  let keychain;
+  try {
+    keychain = yield btcWallet.getEncryptedUserKeychain();
+  } catch (e) {
+    if (e.status !== 404) {
+      throw e;
+    }
+  }
+
+  printSeparator();
+
+  let prv;
+
+  if (!keychain || !keychain.encryptedPrv) {
+    yield input.getVariable('passcode', 'We could not find your user keychain. Please enter your prv: ', true)();
+    prv = input.passcode;
+
+    if (!prv || !_.startsWith(prv, 'xprv')) {
+      throw new Error('Error reading private key. The pasted key must start with \'xprv\'.');
+    }
+  } else {
+    yield input.getVariable('passcode', 'Found an encrypted user keychain. Please enter your wallet passphrase: ', true)();
+
+    const passphrase = input.passcode;
+
+    try {
+      prv = this.bitgo.decrypt({ input: keychain.encryptedPrv, password: passphrase });
+    } catch (e) {
+      throw new Error('Error reading private key. Please check that you have the correct wallet passphrase.');
+    }
+  }
+
+  printSeparator();
+
+  const txPrebuild = { txHex: recoveryTx.buildIncomplete().toHex(), txInfo };
+  const halfSignedRecoveryTx = yield bchWallet.signTransaction({ txPrebuild, prv });
+
+  this.info('This is your half-signed recovery transaction. Please verify this transaction independently.');
+  this.info('Once you half verified your transaction, you may submit it to BitGo support for co-signing and broadcast.');
+  this.info('Half-signed transaction:');
+  this.info(JSON.stringify(halfSignedRecoveryTx, null, 4));
+
+  printSeparator();
+
+  const fileData = {
+    walletId: btcWallet.id(),
+    txHex: halfSignedRecoveryTx.txHex
+  };
+
+  const recoveryFile = `bchr-${faultyTx.slice(0, 7)}.signed.json`;
+
+  fs.writeFileSync(recoveryFile, JSON.stringify(fileData, null, 4));
+
+  this.info(`Saved recovery transaction info to ./${recoveryFile}`);
+});
+
+
 BGCL.prototype.runCommandHandler = function(cmd) {
   const self = this;
 
@@ -3302,6 +3528,7 @@ BGCL.prototype.run = function() {
   const env = this.args.env || process.env.BITGO_ENV || 'prod';
   const userAgent = 'BitGoCLI/' + CLI_VERSION;
   this.bitgo = new bitgo.BitGo({ env: env, userAgent: userAgent });
+  this.env = env;
 
   this.session = new Session(this.bitgo);
   this.session.load();
