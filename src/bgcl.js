@@ -667,7 +667,7 @@ BGCL.prototype.createArgumentParser = function() {
   recoverBch.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
   recoverBch.addArgument(['-d', '--destaddress'], { help: 'The destination address recovered funds should be sent to.' });
   recoverBch.addArgument(['-p', '--prefix'], { help: 'optional output file prefix' });
-  recoverBch.addArgument(['--test'], { help: 'use testnet' });
+  recoverBch.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
   // recover BCH from migrated legacy safehd wallet
   const recoverBCHFromSafeHD = utilParser.addParser('recoversafehdbch', {
@@ -3305,7 +3305,17 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
   const ADDRESS_UNSPENTS_URL = coin.url(`/public/addressUnspents/${outputAddresses.join(',')}`);
   res = yield request.get(ADDRESS_UNSPENTS_URL);
   const unspents = res.body;
-  const txInfo = { unspents: [] };
+  const txInfo = {
+    inputAmount: 0,
+    outputAmount: 0,
+    spendAmount: 0,
+    inputs: [],
+    outputs: [],
+    externalOutputs: [],
+    changeOutputs: [],
+    minerFee: 0,
+    payGoFee: 0
+  };
 
   this.info('Building inputs for recovery transaction...');
 
@@ -3330,13 +3340,19 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
       throw new Error(`Error adding unspent ${unspent.id}`);
     }
 
-    txInfo.unspents.push(Object.assign({}, unspent, {
+    txInfo.inputs.push(Object.assign({}, unspent, {
       redeemScript: unspentAddress.coinSpecific.redeemScript,
-      index: index,
-      chain: unspentAddress.chain
+      index: inputIndex,
+      chain: unspentAddress.chain,
+      wallet: btcWallet.id(),
+      fromWallet: btcWallet.id()
     }));
+
+    txInfo.inputAmount += parseInt(unspent.value, 10);
     totalFound += parseInt(unspent.value, 10);
   });
+
+  txInfo.unspents = _.clone(txInfo.inputs);
 
   // Normalize total found to base unit before we print it out
   this.info(`Found lost ${totalFound * 1e-8} BCH.`);
@@ -3352,12 +3368,26 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
   const recoveryFee = DEFAULT_BCH_FEE_RATE * txSize;
 
   const outputAmount = totalFound - recoveryFee;
+  txInfo.minerFee = recoveryFee;
+  txInfo.outputAmount = outputAmount;
+  txInfo.spendAmount = outputAmount;
 
   if (outputAmount <= 0) {
     throw new Error('This recovery transaction cannot pay its own fees. Aborting.');
   }
 
   recoveryTx.addOutput(recoveryAddress, outputAmount);
+
+  const outputData = {
+    address: recoveryAddress,
+    value: outputAmount,
+    valueString: outputAmount.toString(),
+    wallet: bchWallet.id(),
+    change: false
+  };
+
+  txInfo.outputs.push(outputData);
+  txInfo.externalOutputs.push(outputData);
 
   this.info('Built inputs and outputs. Signing the transaction...');
 
@@ -3407,7 +3437,8 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
 
   const fileData = {
     walletId: btcWallet.id(),
-    txHex: halfSignedRecoveryTx.txHex
+    txHex: halfSignedRecoveryTx.txHex,
+    txInfo: txInfo
   };
 
   const recoveryFile = `bchr-${faultyTx.slice(0, 7)}.signed.json`;
