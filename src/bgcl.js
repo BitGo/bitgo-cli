@@ -3342,7 +3342,7 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
 
     txInfo.inputs.push(Object.assign({}, unspent, {
       redeemScript: unspentAddress.coinSpecific.redeemScript,
-      index: inputIndex,
+      index: unspentAddress.index,
       chain: unspentAddress.chain,
       wallet: btcWallet.id(),
       fromWallet: btcWallet.id()
