@@ -501,7 +501,7 @@ Wrote tx20154211455.json
 ```
 
 ## signtx
-Signs an unsigned transcation (using JSON file from createtx). Can be performed offline. 
+Signs an unsigned transcation (using JSON file from createtx). Can be performed offline.
 
 ```
 $ bitgo signtx -h
@@ -528,8 +528,8 @@ Wrote tx20154211455.signed.json
 ```
 
 ## sendtx
-Sends a half-signed transaction on a wallet to BitGo for co-signing and propogation to the Bitcoin network. 
-Takes input from a filename (JSON constructed by signtx) or a pure transaction hex. 
+Sends a half-signed transaction on a wallet to BitGo for co-signing and propogation to the Bitcoin network.
+Takes input from a filename (JSON constructed by signtx) or a pure transaction hex.
 
 ```
 $ bitgo sendtx -h
@@ -542,7 +542,7 @@ Optional arguments:
   -f [FILE], --file [FILE]
                         optional input file containing the tx hex
 
-$ bitgo sendtx 
+$ bitgo sendtx
 Current wallet: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
 Send Transaction
 
@@ -573,35 +573,86 @@ Current wallet: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
 Webhooks:
  Type             NumConfirmations  URL
  transaction                     3  http://www.yoursite.com/partner/webhooks
- ```
+```
 
- ## removeWebhook
- Removes a webhook from the current wallet.
- ```
- $ bitgo removeWebhook -u http://www.yoursite.com/partner/webhooks -t transaction
- Current wallet: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
- { removed: 1 }
- ```
+## removeWebhook
+Removes a webhook from the current wallet.
+```
+$ bitgo removeWebhook -u http://www.yoursite.com/partner/webhooks -t transaction
+Current wallet: 2N6d5SYvu1xQeSQnpZ4VNVZ6TcRYcqkocao
+{ removed: 1 }
+```
 
- ## utils
- Miscellaneous utility commands
- ```
- $ bitgo utils -h
- usage: bitgo util [-h] {recoverlitecoin} ...
+## utils
+Miscellaneous utility commands
+```
+$ bitgo util -h
+usage: bitgo util [-h] {recoverlitecoin} ...
 
- Optional arguments:
-   -h, --help         Show this help message and exit.
+Optional arguments:
+-h, --help         Show this help message and exit.
 
- Utility commands:
-  {recoverlitecoin,recoversafehdbch}
-    recoverlitecoin     Helper tool to craft transaction to recover Litecoin 
-                        mistakenly sent to BitGo Bitcoin multisig addresses 
-                        on the Litecoin network
-    recoversafehdbch    Helper tool to craft transaction to recover BCH from 
-                        migrated legacy SafeHD wallets
+Utility commands:
+{recoverlitecoin,recoverbch,recoversafehdbch}
+recoverlitecoin     Helper tool to craft transaction to recover Litecoin
+                    mistakenly sent to BitGo Bitcoin multisig addresses
+                    on the Litecoin network
+recoverbch          Helper tool to craft transaction to recover BCH
+                    mistakenly sent to BitGo Bitcoin multisig addresses
+                    on the BTC network
+recoversafehdbch    Helper tool to craft transaction to recover BCH from
+                    migrated legacy SafeHD wallets
+```
 
- ```
- 
+# BitGo Recovery Tools
+Bitgo-cli contains a number of utility functions for recovering funds from inaccessible wallets. The following recoveries can be performed:
+1. Recover BCH from a migrated legacy SafeHD Wallet
+2. Recover Litecoin mistakenly sent to a BitGo Bitcoin address
+3. Recover BCH mistakenly sent to a BitGo Bitcoin non-SegWit address
+
+All recoveries can be accessed via `bitgo util` and require the following pieces of information:
+1) The wallet ID that sent the faulty transaction
+2) The wallet ID of the wallet the 'wrong chain' address belongs to
+3) The transaction ID of the faulty transaction
+4) A destination address to send the recovered funds to
+5) The wallet passphrase (or prv) for the wallet  the 'wrong chain' address belongs to
+
+You will be prompted to enter this data after starting the tool.
+
+Example:
+```
+$ bitgo login (enter login information)
+$ bitgo util recoverbch --test
+This tool will help you construct a transaction to recover BCH mistakenly sent to a non-SegWit BTC address.
+================================================================================
+Please enter the wallet ID the faulty transaction originated from: 5a21bb7d65662fd407b07ae280c211cf
+Please enter the wallet ID of the BTC wallet that received the funds: 5a21bbe965662fd407b07e3f794d4a8b
+Please enter the transaction ID of your faulty transaction: 842a9193cca39e4e4f5e7db43a402ccf93661b35f8a9df26f40aeddf27644c36
+Please enter the address you wish to recover your BCH to: 2NEv4PivtrqShHdnA6y6eC2QkeHh4YijZED
+================================================================================
+Grabbing info for faulty tx...
+Getting unspents on output addresses...
+Building inputs for recovery transaction...
+Found 0.213123 BCH at address 2Mxq8pmNCx25UEWJDBxZ8nPj8katuH7hq84
+Found lost 0.213123 BCH.
+Building outputs for recovery transaction. Funds will be sent to 2NEv4PivtrqShHdnA6y6eC2QkeHh4YijZED...
+Built inputs and outputs. Signing the transaction...
+================================================================================
+Found an encrypted user keychain. Please enter your wallet passphrase: ***************
+
+================================================================================
+This is your half-signed recovery transaction. Please verify this transaction independently.
+Once you half verified your transaction, you may submit it to BitGo support for co-signing and broadcast.
+Half-signed transaction:
+{
+    "txHex": "0200000001364c6427dfed0af426dfa9f8351b6693cf2c403ab47d5e4f4e9ea3cc93912a8401000000b600473044022076ce7e9ddccbb5ccc826e4c396cb01a0ce2a33dd55a6843c654b2405f403747202203f7041e2231769545d4db7f7d7c873b6dd4ae9fbe9343b00be59cf8efd0bb3ff4100004c69522102d0d6955ed934bda10e4c6b19c215c77428ffd11d95815c6871dfcc8270a2d48c21030957e339f7e0e9f734e0cd4966dd6d8c415eb5301fb193b8b48df7bf7a3c5c8821039d16e1cd3f57f4786c410f7e42d429501d1e9fc3a4904ae6682c2e6633a447e553aeffffffff01b01845010000000017a914edb2da8ef295baa4155b42acb8a4eac11d9a0e088700000000"
+}
+================================================================================
+Saved recovery transaction info to ./bchr-842a919.signed.json
+```
+
+After running the tool, bitgo-cli will save a local recovery JSON file. You should verify the transaction using a public transaction decoder - if you are satisfied, submit the recovery transaction file to support@bitgo.com for co-siging and broadcast.
+
 # Developing
 
 **For developers on bitgo-cli, the following must be run before writing new code.**

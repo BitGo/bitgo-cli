@@ -660,7 +660,7 @@ BGCL.prototype.createArgumentParser = function() {
   recoverLitecoin.addArgument(['-r', '--recipients'], { help: 'JSON dictionary of recipients in { addr1: satoshis }' });
   recoverLitecoin.addArgument(['-p', '--prefix'], { help: 'optional output file prefix' });
 
-  const recoverBch = utilParser.addParser('recoverBch', {
+  const recoverBch = utilParser.addParser('recoverbch', {
     addHelp: true,
     help: 'Helper tool to craft transaction to recover BCH mistakenly sent to BitGo Bitcoin multisig addresses on the BTC network'
   });
@@ -692,7 +692,7 @@ BGCL.prototype.handleUtil = function() {
   switch (this.args.utilCmd) {
     case 'recoverlitecoin':
       return this.handleRecoverLitecoin();
-    case 'recoverBch':
+    case 'recoverbch':
       return this.handleRecoverBCHFromBTCNonSegWit();
     case 'recoversafehdbch':
       return this.handleRecoverBCHFromSafeHD();
@@ -3257,7 +3257,7 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
   if (!bchWallet) {
     throw new Error(`BCH wallet with ID ${bchWalletId} not found`);
   }
-  
+
   let btcWallet;
   try {
     btcWallet = yield btcCoin.wallets().get({ id: btcWalletId });
