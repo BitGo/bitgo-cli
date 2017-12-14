@@ -764,7 +764,7 @@ BGCL.prototype.action = function(line) {
 BGCL.prototype.checkAndWarnOfLongLivedTokenChange = function(input, warning) {
   return this.bitgo.session()
   .then(function(res) {
-    if (_.contains(_.keys(res), 'label')) {
+    if (_.includes(_.keys(res), 'label')) {
       console.log(warning);
       return input.getVariable('confirm', 'Type \'go\' to confirm: ')()
       .then(function() {
@@ -2072,7 +2072,7 @@ BGCL.prototype.handleSignTx = function() {
 
     const pubKey = hdNode.neutered().toBase58();
     const xpubs = _.initial(_.pluck(wallet.keychains, 'xpub'));
-    if (!_.contains(xpubs, pubKey)) {
+    if (!_.includes(xpubs, pubKey)) {
       throw new Error('did not provide a private key valid for the wallet that created this transaction');
     }
 
