@@ -677,6 +677,14 @@ BGCL.prototype.createArgumentParser = function() {
   });
   recoverBCHFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
 
+  // recover BTG from migrated legacy safehd wallet
+  const recoverBTGFromSafeHD = utilParser.addParser('recoversafehdbtg', {
+    addHelp: true,
+    help: 'Helper tool to craft transaction to recover BTG from migrated legacy SafeHD wallets',
+    usage: 'First, select the legacy SafeHD wallet from which you would like to recover the BTG:\n\tbitgo wallet [wallet]\nThen, run this command:\n\tbitgo util recoversafehdbtg [-h] [-d DEST]'
+  });
+  recoverBTGFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
+
   // help
   const help = subparsers.addParser('help', {
     addHelp: true,
@@ -696,6 +704,8 @@ BGCL.prototype.handleUtil = function() {
       return this.handleRecoverBCHFromBTCNonSegWit();
     case 'recoversafehdbch':
       return this.handleRecoverBCHFromSafeHD();
+    case 'recoversafehdbtg':
+      return this.handleRecoverBTGFromSafeHD();
     default:
       throw new Error('unknown command');
   }
@@ -2838,7 +2848,8 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
   const bchWallets = yield bch.wallets().list();
   const migratedWallet = _.find(bchWallets.wallets, w => w._wallet.migratedFrom === this.session.wallet.id());
 
-  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - 0.005 * 1e8; // we can't spend everything, but it's just $25
+  const feeToPay = 0.005 * 1e8;
+  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - feeToPay;
   const txPrebuild = yield migratedWallet.prebuildTransaction({
     recipients: [{
       address: destinationAddress,
@@ -2889,63 +2900,107 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
       throw new Error('Failed to sign input #' + inputIndex);
     }
 
+    // now, let's verify the signature
+    const isSignatureVerified = bch.verifySignature(transaction, inputIndex, value);
+    if (!isSignatureVerified) {
+      throw new Error(`Could not verify signature #${inputIndex}`);
+    }
+  }
+
+  const halfSignedTx = txb.buildIncomplete().toHex();
+  this.info('Half-signed transaction: ' + halfSignedTx);
+
+  yield this.handleUnlock();
+
+  const sendUrl = migratedWallet.url('/tx/send');
+  const fullySignedTx = yield this.bitgo.post(sendUrl)
+  .send({
+    txHex: halfSignedTx
+  })
+  .result();
+  this.info('Signed Transaction: ' + JSON.stringify(fullySignedTx, null, 4));
+});
+
+BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
+  const input = new UserInput(this.args);
+  // ensure a wallet is selected
+  yield this.ensureWallet();
+  yield input.getVariable('dest', 'Destination address: ')();
+  const destinationAddress = input.dest;
+  try {
+    bitcoin.address.fromBase58Check(destinationAddress);
+  } catch (e) {
+    throw new Error('Invalid destination address');
+  }
+
+  const btg = this.bitgo.coin('btg');
+  const btgWallets = yield btg.wallets().list();
+  const migratedWallet = _.find(btgWallets.wallets, w => w._wallet.migratedFrom === this.session.wallet.id());
+
+  const feeToPay = 0.005 * 1e8;
+  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - feeToPay; // we can't spend everything, but it's just $25
+  const txPrebuild = yield migratedWallet.prebuildTransaction({
+    recipients: [{
+      address: destinationAddress,
+      amount: amount
+    }]
+  });
+
+  yield input.getVariable('password', 'Wallet password: ')();
+  const signingKeychain = yield this.session.wallet.getAndPrepareSigningKeychain({ walletPassphrase: input.password });
+  const rootExtKey = bitcoin.HDNode.fromBase58(signingKeychain.xprv);
+  const hdPath = bitcoin.hdPath(rootExtKey);
+
+  // sign the transaction
+  let transaction = bitcoin.Transaction.fromHex(txPrebuild.txHex);
+
+  if (transaction.ins.length !== txPrebuild.txInfo.unspents.length) {
+    throw new Error('length of unspents array should equal to the number of transaction inputs');
+  }
+
+  const txb = bitcoin.TransactionBuilder.fromTransaction(transaction);
+  txb.enableBitcoinGold(true);
+  txb.setVersion(2);
+
+
+  const sigHashType = bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143;
+  for (let inputIndex = 0; inputIndex < transaction.ins.length; ++inputIndex) {
+    // get the current unspent
+    const currentUnspent = txPrebuild.txInfo.unspents[inputIndex];
+    const chainPath = '/' + currentUnspent.chain + '/' + currentUnspent.index;
+    const subPath = signingKeychain.walletSubPath || '/0/0';
+    const path = signingKeychain.path + subPath + chainPath;
+    // derive the correct key
+    const privKey = hdPath.deriveKey(path);
+    const value = currentUnspent.value;
+
+    // do the signature flow
+    const subscript = new Buffer(currentUnspent.redeemScript, 'hex');
+    const isSegwit = !!currentUnspent.witnessScript;
+
+    let witnessScript;
+    if (isSegwit) {
+      witnessScript = Buffer.from(currentUnspent.witnessScript, 'hex');
+    }
+
+    try {
+      txb.sign(inputIndex, privKey, subscript, sigHashType, value, witnessScript);
+      // gotta keep updating
+      transaction = txb.buildIncomplete();
+    } catch (e) {
+      e.result = {
+        unspent: currentUnspent
+      };
+      e.message = `${e.message} — ${JSON.stringify(e.result, null, 4)}`;
+      console.trace(e);
+      throw new Error('Failed to sign input #' + inputIndex);
+    }
 
     // now, let's verify the signature
-    const currentTransactionInput = transaction.ins[inputIndex];
-    const sigScript = currentTransactionInput.script;
-    const sigs = [];
-    const pubKeys = [];
-    const decompiledSigScript = bitcoin.script.decompile(sigScript);
-
-    const inputClassification = bitcoin.script.classifyInput(sigScript, true);
-    if (inputClassification !== 'scripthash') {
-      throw new Error('bad input classification');
+    const isSignatureVerified = btg.verifySignature(transaction, inputIndex, value);
+    if (!isSignatureVerified) {
+      throw new Error(`Could not verify signature #${inputIndex}`);
     }
-    // Replace the pubScript with the P2SH Script.
-    const pubScript = decompiledSigScript[decompiledSigScript.length - 1];
-    const decompiledPubScript = bitcoin.script.decompile(pubScript);
-    for (let signatureIndex = 1; signatureIndex < decompiledSigScript.length - 1; ++signatureIndex) {
-      sigs.push(decompiledSigScript[signatureIndex]);
-    }
-    for (let pubkeyIndex = 1; pubkeyIndex < decompiledPubScript.length - 2; ++pubkeyIndex) {
-      // we minus 1 because the key indexes start from the second chunk (first chunk is used for total keys)
-      pubKeys.push(decompiledPubScript[pubkeyIndex]);
-    }
-
-    let numVerifiedSignatures = 0;
-    for (let sigIndex = 0; sigIndex < sigs.length; ++sigIndex) {
-      // If this is an OP_0, then its been left as a placeholder for a future sig.
-      if (sigs[sigIndex] === bitcoin.opcodes.OP_0) {
-        continue;
-      }
-
-      const hashType = sigs[sigIndex][sigs[sigIndex].length - 1];
-      sigs[sigIndex] = sigs[sigIndex].slice(0, sigs[sigIndex].length - 1); // pop hash type from end
-      const signatureHash = transaction.hashForCashSignature(inputIndex, pubScript, value, hashType);
-
-      let validSig = false;
-
-      // Enumerate the possible public keys
-      for (let pubKeyIndex = 0; pubKeyIndex < pubKeys.length; ++pubKeyIndex) {
-        const pubKey = bitcoin.ECPair.fromPublicKeyBuffer(pubKeys[pubKeyIndex]);
-        const signature = bitcoin.ECSignature.fromDER(sigs[sigIndex]);
-        validSig = pubKey.verify(signatureHash, signature);
-        if (validSig) {
-          pubKeys.splice(pubKeyIndex, 1);  // remove the pubkey so we can't match 2 sigs against the same pubkey
-          break;
-        }
-      }
-      if (!validSig) {
-        throw new Error('invalid signature for index ' + inputIndex);
-      }
-      numVerifiedSignatures++;
-    }
-
-    // count the number of verified signatures
-    if (numVerifiedSignatures !== 1) {
-      throw new Error('bad number of verified sigs');
-    }
-
   }
 
   const halfSignedTx = txb.buildIncomplete().toHex();
