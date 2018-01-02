@@ -21,7 +21,7 @@ const CrossChainRecoveryTool = function CrossChainRecoveryTool(opts) {
   }
 
   // List of coins we support. Add modifiers (e.g. segwit) after the dash
-  this.supportedCoins = ['btc', 'bch', 'btc-segwit'];
+  this.supportedCoins = ['btc', 'bch', 'ltc', 'btc-segwit'];
 
   if (!opts.sourceCoin || !this.supportedCoins.includes(opts.sourceCoin)) {
     throw new Error('Please set a valid source coin');
@@ -39,7 +39,9 @@ const CrossChainRecoveryTool = function CrossChainRecoveryTool(opts) {
     bch: 20,
     tbch: 20,
     btc: 80,
-    tbtc: 80
+    tbtc: 80,
+    ltc: 100,
+    tltc: 100
   };
 };
 
@@ -169,7 +171,14 @@ CrossChainRecoveryTool.prototype.findUnspents = function findUnspents(faultyTxId
     // These are where the 'lost coins' live
     const outputAddresses = faultyTxInfo.outputs
     .map((input) => input.address)
-    .filter((address) => _.find(this.addresses.dest, { address }));
+    .filter((address) => {
+      if (this.sourceCoin.type.endsWith('ltc')) {
+        address = this.sourceCoin.canonicalAddress(address, 1);
+      }
+
+      return _.find(this.addresses.dest, { address });
+    });
+
 
     // Get unspents for addresses
     const ADDRESS_UNSPENTS_URL = this.sourceCoin.url(`/public/addressUnspents/${outputAddresses.join(',')}`);
@@ -182,93 +191,101 @@ CrossChainRecoveryTool.prototype.findUnspents = function findUnspents(faultyTxId
 };
 
 CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
-  this._log('Building inputs for recovery transaction...');
+  return co(function *() {
+    this._log('Building inputs for recovery transaction...');
 
-  unspents = unspents || this.unspents;
+    unspents = unspents || this.unspents;
 
-  if (!unspents) {
-    throw new Error('Could not find unspents. Either supply an argument or call findUnspents');
-  }
-
-  const txInfo = {
-    inputAmount: 0,
-    outputAmount: 0,
-    spendAmount: 0,
-    inputs: [],
-    outputs: [],
-    externalOutputs: [],
-    changeOutputs: [],
-    minerFee: 0,
-    payGoFee: 0
-  };
-
-  let totalFound = 0;
-  const noSegwit = this.recoveryCoin.type === 'btc' && this.sourceCoin.type === 'bch';
-  for (const unspent of unspents) {
-    if (unspent.witnessScript && noSegwit) {
-      throw new Error('Warning! It appears one of the unspents is on a Segwit address. The tool only recovers BCH from non-Segwit BTC addresses. Aborting.');
+    if (!unspents) {
+      throw new Error('Could not find unspents. Either supply an argument or call findUnspents');
     }
 
-    const unspentAddress = this.addresses.dest.find((address) => address.address === unspent.address);
+    const txInfo = {
+      inputAmount: 0,
+      outputAmount: 0,
+      spendAmount: 0,
+      inputs: [],
+      outputs: [],
+      externalOutputs: [],
+      changeOutputs: [],
+      minerFee: 0,
+      payGoFee: 0
+    };
 
-    // This sometimes happens when a wallet has a lot of receive addresses
-    if (!unspentAddress) {
-      return;
+    let totalFound = 0;
+    const noSegwit = this.recoveryCoin.type === 'btc' && this.sourceCoin.type === 'bch';
+    for (const unspent of unspents) {
+      if (unspent.witnessScript && noSegwit) {
+        throw new Error('Warning! It appears one of the unspents is on a Segwit address. The tool only recovers BCH from non-Segwit BTC addresses. Aborting.');
+      }
+
+      const searchAddress = this.sourceCoin.type.endsWith('ltc') ? this.sourceCoin.canonicalAddress(unspent.address, 1) : unspent.address;
+      const unspentAddress = this.addresses.dest.find((address) => address.address === searchAddress);
+
+      // This sometimes happens when a wallet has a lot of receive addresses
+      if (!unspentAddress) {
+        return;
+      }
+
+      this._log(`Found ${unspent.value * 1e-8} ${this.sourceCoin.type} at address ${unspent.address}`);
+
+      const [txHash, index] = unspent.id.split(':');
+      const inputIndex = parseInt(index, 10);
+      let hash = new Buffer(txHash, 'hex');
+      hash = new Buffer(Array.prototype.reverse.call(hash));
+
+      try {
+        this.recoveryTx.addInput(hash, inputIndex);
+      } catch (e) {
+        throw new Error(`Error adding unspent ${unspent.id}`);
+      }
+
+      let inputData = {};
+
+      // Add v1 specific input fields
+      if (this.wallets.dest.isV1) {
+        const addressInfo = yield this.wallets.dest.address({ address: unspentAddress.address });
+
+        unspentAddress.path = unspentAddress.path || `/${unspentAddress.chain}/${unspentAddress.index}`;
+        const [txid, nOut] = unspent.id.split(':');
+
+        inputData = {
+          redeemScript: addressInfo.redeemScript,
+          witnessScript: addressInfo.witnessScript,
+          path: '/0/0' + unspentAddress.path,
+          chainPath: unspentAddress.path,
+          index: unspentAddress.index,
+          chain: unspentAddress.chain,
+          txHash: txid,
+          txOutputN: parseInt(nOut, 10),
+          txValue: unspent.value,
+          value: parseInt(unspent.value, 10)
+        };
+      } else {
+        inputData = {
+          redeemScript: unspentAddress.coinSpecific.redeemScript,
+          witnessScript: unspentAddress.coinSpecific.witnessScript,
+          index: unspentAddress.index,
+          chain: unspentAddress.chain,
+          wallet: this.wallets.dest.id(),
+          fromWallet: this.wallets.dest.id()
+        };
+      }
+
+      txInfo.inputs.push(Object.assign({}, unspent, inputData));
+
+      txInfo.inputAmount += parseInt(unspent.value, 10);
+      totalFound += parseInt(unspent.value, 10);
     }
 
-    this._log(`Found ${unspent.value * 1e-8} ${this.sourceCoin.type} at address ${unspent.address}`);
+    txInfo.unspents = _.clone(txInfo.inputs);
 
-    const [txHash, index] = unspent.id.split(':');
-    const inputIndex = parseInt(index, 10);
-    let hash = new Buffer(txHash, 'hex');
-    hash = new Buffer(Array.prototype.reverse.call(hash));
+    // Normalize total found to base unit before we print it out
+    this._log(`Found lost ${totalFound * 1e-8} ${this.sourceCoin.type}.`);
 
-    try {
-      this.recoveryTx.addInput(hash, inputIndex);
-    } catch (e) {
-      throw new Error(`Error adding unspent ${unspent.id}`);
-    }
-
-    let inputData = {};
-
-    // Add v1 specific input fields
-    if (this.wallets.dest.isV1) {
-      unspentAddress.path = `/${unspentAddress.chain}/${unspentAddress.index}`;
-
-      inputData = {
-        redeemScript: unspentAddress.coinSpecific.redeemScript,
-        witnessScript: unspentAddress.coinSpecific.witnessScript,
-        path: '/0/0' + unspentAddress.path,
-        chainPath: unspentAddress.path,
-        txHash: unspent.tx,
-        txOutputN: unspent.nOut,
-        txValue: unspent.value,
-        value: parseInt(unspent.value, 10)
-      };
-    } else {
-      inputData = {
-        redeemScript: unspentAddress.coinSpecific.redeemScript,
-        witnessScript: unspentAddress.coinSpecific.witnessScript,
-        index: unspentAddress.index,
-        chain: unspentAddress.chain,
-        wallet: this.wallets.dest.id(),
-        fromWallet: this.wallets.dest.id()
-      };
-    }
-
-    txInfo.inputs.push(Object.assign({}, unspent, inputData));
-
-    txInfo.inputAmount += parseInt(unspent.value, 10);
-    totalFound += parseInt(unspent.value, 10);
-  }
-
-  txInfo.unspents = _.clone(txInfo.inputs);
-
-  // Normalize total found to base unit before we print it out
-  this._log(`Found lost ${totalFound * 1e-8} ${this.sourceCoin.type}.`);
-
-  this.txInfo = txInfo;
-  return txInfo;
+    this.txInfo = txInfo;
+    return txInfo;
+  }).call(this);
 };
 
 CrossChainRecoveryTool.prototype.setFees = function setFees(recoveryTx) {
@@ -304,6 +321,10 @@ CrossChainRecoveryTool.prototype.buildOutputs = function buildOutputs(recoveryAd
     throw new Error('This recovery transaction cannot pay its own fees. Aborting.');
   }
 
+  if (this.sourceCoin.type.endsWith('ltc')) {
+    recoveryAddress = this.sourceCoin.canonicalAddress(recoveryAddress, 1);
+  }
+
   this.recoveryTx.addOutput(recoveryAddress, outputAmount);
 
   const outputData = {
@@ -329,8 +350,7 @@ CrossChainRecoveryTool.prototype.signTransaction = function signTransaction({ pr
     const transactionHex = this.recoveryTx.buildIncomplete().toHex();
 
     if (!prv) {
-      const keys = yield this.getKeys(passphrase);
-      prv = keys.prv;
+      prv = yield this.getKeys(passphrase);
     }
 
     const txPrebuild = { txHex: transactionHex, txInfo: this.txInfo };
@@ -365,23 +385,14 @@ CrossChainRecoveryTool.prototype.getKeys = function getPrv(passphrase) {
 
     if (keychain) {
       try {
-        prv = this.bitgo.decrypt({ input: keychain.encryptedPrv, password: passphrase });
+        const encryptedPrv = this.wallets.dest.isV1 ? keychain.encryptedXprv : keychain.encryptedPrv;
+        prv = this.bitgo.decrypt({ input: encryptedPrv, password: passphrase });
       } catch (e) {
         throw new Error('Error reading private key. Please check that you have the correct wallet passphrase');
       }
     }
 
-    if (this.wallets.dest.isV1) {
-      keychain.xprv = prv;
-
-      if (!keychain.path) {
-        keychain.path = '';
-      }
-
-      return { keychain };
-    } else {
-      return { prv };
-    }
+    return prv;
   }).call(this);
 };
 
@@ -390,6 +401,8 @@ CrossChainRecoveryTool.prototype.saveToFile = function saveToFile(fileName) {
 
   const fileData = {
     version: this.wallets.dest.isV1 ? 1 : 2,
+    sourceCoin: this.sourceCoin.type,
+    recoveryCoin: this.recoveryCoin.type,
     walletId: this.wallets.dest.id(),
     txHex: this.halfSignedRecoveryTx.txHex || this.halfSignedRecoveryTx.tx,
     txInfo: this.txInfo
@@ -408,7 +421,7 @@ CrossChainRecoveryTool.prototype.buildTransaction = function buildTransaction({ 
     yield this.setWallet(this.recoveryCoin.type, recoveryWallet);
 
     yield this.findUnspents(faultyTxId);
-    this.buildInputs();
+    yield this.buildInputs();
     this.setFees();
     this.buildOutputs(recoveryAddress);
 

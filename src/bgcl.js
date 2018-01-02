@@ -654,13 +654,15 @@ BGCL.prototype.createArgumentParser = function() {
   });
 
   // recoverLitecoin
-  const recoverLitecoin = utilParser.addParser('recoverlitecoin', {
+  const recoverLitecoin = utilParser.addParser('recoverltc', {
     addHelp: true,
     help: 'Helper tool to craft transaction to recover Litecoin mistakenly sent to BitGo Bitcoin multisig addresses on the Litecoin network'
   });
-  recoverLitecoin.addArgument(['-i', '--inputaddresses'], { help: 'JSON array of input addresses to obtain litecoin from' });
-  recoverLitecoin.addArgument(['-r', '--recipients'], { help: 'JSON dictionary of recipients in { addr1: satoshis }' });
-  recoverLitecoin.addArgument(['-p', '--prefix'], { help: 'optional output file prefix' });
+  recoverLitecoin.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
+  recoverLitecoin.addArgument(['-s', '--sourceWallet'], { help: 'The wallet ID the faulty transaction originated from' });
+  recoverLitecoin.addArgument(['-r', '--recoveryWallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
+  recoverLitecoin.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
+  recoverLitecoin.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
   const recoverBch = utilParser.addParser('recoverbch', {
     addHelp: true,
@@ -711,7 +713,7 @@ BGCL.prototype.createArgumentParser = function() {
 
 BGCL.prototype.handleUtil = function() {
   switch (this.args.utilCmd) {
-    case 'recoverlitecoin':
+    case 'recoverltc':
       return this.handleRecoverLitecoin();
     case 'recoverbch':
       return this.handleRecoverBCHFromBTCNonSegWit();
@@ -3033,247 +3035,6 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
 });
 
 /**
- * Aids in the recovery of Litecoin that was sent to a BitCoin address
- * It creates a half signed transaction using the users private keys and
- * then needs to be signed by BitGo for the transaction to be complete.
- * This function only works on Litecoin mainnet.
- */
-BGCL.prototype.handleRecoverLitecoin = function() {
-  const self = this;
-  const input = new UserInput(this.args);
-  let inputAddresses;
-  let recipients;
-  let inputAddressInfo;
-  let unspentsByAddress;
-  const transaction = new bitcoin.TransactionBuilder(bitcoin.networks.litecoin);
-  let keychain;
-
-  // V2 API unspents base url
-  const baseUrl = 'https://www.bitgo.com/api/v2/ltc/public/addressUnspents/';
-  // const baseUrl = 'https://test.bitgo.com/api/v2/tltc/public/addressUnspents/';
-
-  // Used to convert address format for LTC from old to new format
-  const userAgent = 'BitGoCLI/' + pjson.version;
-  const ltcCoin = new bitgo.BitGo({ env: 'prod', userAgent: userAgent }).coin('ltc');
-  // var ltcCoin = new bitgo.BitGo({ env: 'test', userAgent: userAgent }).coin('tltc');
-
-  const resultJSON = {
-    inputs: [],
-    tx: '' // hex goes here
-  };
-
-  return this.ensureWallet()
-  .then(function () {
-    self.walletHeader();
-    self.info('Craft a transaction to recover litecoin mistakenly sent to a BitGo Bitcoin multisig addresses on the Litecoin network\n');
-  })
-  .then(input.getVariable('inputaddresses', 'JSON Array of input addresses on the litecoin network, e.g. ["3MJybWMfT5QgxgurpguwmeaeZP2bkSXeVM","3EbzkMxuCKt7HkcyxSdFgtHopWwow1nQni"]: '))
-  .then(input.getVariable('recipients', 'JSON dictionary of recipients in address: amountInLTC format, e.g. { "LgAQ524UwZz2Nq59CUb4m5CGVWYSZH83B1": 5, "LUMZucN2rvbVryAYP5Ba43d9NcMedaRNn1": 2 }: '))
-  .then(function() {
-    try {
-      inputAddresses = JSON.parse(input.inputaddresses);
-    } catch (e) {
-      throw new Error('Invalid JSON input addresses');
-    }
-    try {
-      recipients = JSON.parse(input.recipients);
-    } catch (e) {
-      throw new Error('Invalid JSON recipients');
-    }
-    return self.bitgo.wallets().get({ id: self.session.wallet.id() });
-  })
-  .then(function(wallet) {
-    const getAddressInfo = function(address) {
-      return wallet.address({ address: address });
-    };
-
-    const getUnspentsForAddresses = function(inputAddresses) {
-      const newAddresses = inputAddresses.map((address) => ltcCoin.canonicalAddress(address, 2));
-      const url = baseUrl + newAddresses.join(',');
-
-      return request.get(url)
-      .set('Content-Type', 'application/json')
-      .then(function(result) {
-        const resultsByAddress = _.groupBy(result.body, 'address');
-        return newAddresses.map(function(address) {
-          const currentUnspents = resultsByAddress[address];
-          if (!currentUnspents || !Array.isArray(currentUnspents)) {
-            throw new Error('No unspent txs on litecoin network for ' + address);
-          }
-          const newAddress = ltcCoin.canonicalAddress(address, 1);
-
-          let addressAmount = 0;
-          currentUnspents.map((currentUnspent) => {
-            const [txid, nOut] = currentUnspent.id.split(':');
-            currentUnspent.tx = txid;
-            currentUnspent.nOut = parseInt(nOut, 10);
-            currentUnspent.amount = currentUnspent.value;
-            addressAmount += parseInt(currentUnspent.amount, 10);
-          });
-          return { address: newAddress, amount: addressAmount, unspents: currentUnspents };
-        });
-      });
-    };
-
-    resultJSON.walletId = self.session.wallet.id();
-    resultJSON.bitGoXPub = wallet.keychains[2].xpub;
-
-    self.info('Getting address information on wallet..');
-    return Q.all(inputAddresses.map(getAddressInfo))
-    .then(function(result) {
-      inputAddressInfo = _.indexBy(result, 'address');
-      self.info('Getting unspents from litecoin network..');
-      return getUnspentsForAddresses(inputAddresses);
-    })
-    .then(function(result) {
-      unspentsByAddress = _.indexBy(result, 'address');
-      let totalInputAmount = 0;
-
-      // Build inputs and result json
-      self.info('');
-      self.info('Building inputs.. ');
-      inputAddresses.map(function(currentAddress) {
-        let totalThisAddress = 0;
-        const addInputFromUnspent = function(unspent) {
-          const currentAddressInfo = inputAddressInfo[currentAddress];
-          const { redeemScript, witnessScript } = currentAddressInfo;
-          const amount = Math.round(parseFloat(unspent.amount));
-
-          totalThisAddress += amount;
-          totalInputAmount += amount;
-
-          self.info('Address: ' + currentAddress + ' TxId: ' + unspent.tx + ' Amount ' + self.toBTC(amount) + ' LTC');
-
-          // Add to result json inputs list
-          resultJSON.inputs.push({
-            redeemScript: redeemScript,
-            witnessScript: witnessScript,
-            path: '/0/0' + currentAddressInfo.path,
-            chainPath: currentAddressInfo.path,
-            txHash: unspent.tx,
-            txOutputN: unspent.nOut,
-            txValue: amount,
-            value: parseInt(unspent.value, 10)
-          });
-
-          // Actually add to transaction as input
-          let hash = new Buffer(unspent.tx, 'hex');
-          hash = new Buffer(Array.prototype.reverse.call(hash));
-          try {
-            transaction.addInput(hash, unspent.nOut, 0xffffffff);
-          } catch (e) {
-            resultJSON.inputs[resultJSON.inputs.length - 1].error = e;
-            console.trace(e);
-          }
-        };
-
-        const currentUnspents = unspentsByAddress[currentAddress].unspents;
-        _.each(currentUnspents, addInputFromUnspent);
-        self.info('Total in ' + currentAddress + ' ' + self.toBTC(totalThisAddress) + ' LTC');
-        self.info('====');
-      });
-
-      self.info('Total input amount: ' + self.toBTC(totalInputAmount) + ' LTC');
-      self.info('====');
-
-      self.info('Result JSON: ' + JSON.stringify(resultJSON, null, 4));
-
-      return totalInputAmount;
-    })
-    .then(function(totalInputAmount) {
-      let totalOutputAmount = 0;
-      self.info('');
-      self.info('Building outputs.. ');
-
-      const addRecipientOutput = function (address) {
-        const amount = Math.floor(Number(recipients[address]) * 1e8);
-        if (isNaN(amount)) {
-          throw new Error('Invalid amount (non-numeric)');
-        }
-        totalOutputAmount += amount;
-        transaction.addOutput(address, amount);
-        self.info('Address: ' + address + ' Amount: ' + self.toBTC(amount) + ' LTC');
-      };
-
-      _.each(_.keys(recipients), addRecipientOutput);
-      self.info('Total recover amount: ' + self.toBTC(totalOutputAmount) + ' LTC');
-      self.info('====');
-
-      const fee = totalInputAmount - totalOutputAmount;
-      if (fee < 0) {
-        throw new Error('Insufficient input amount to pay recipients provided!');
-      }
-
-      self.info('Total fee amount: ' + self.toBTC(fee) + ' LTC');
-
-      if (fee > 0.1 * 1e8) {
-        throw new Error('The fee is too high, aborting for safety!');
-      }
-      if (fee < 0.0001 * 1e8) {
-        throw new Error('The fee is too low - minimum fee is 0.001 coins.');
-      }
-
-      self.info('=====');
-      self.info('');
-      self.info('This tool will attempt to create a Litecoin transaction and half-sign it. ');
-      self.info('You must take responsibility to verify the transaction independently. ');
-    })
-    .then(function() {
-      return wallet.getEncryptedUserKeychain()
-      .catch(function(error) {
-        if (error.status !== 404) { // some other error besides the key not existing
-          throw error;
-        }
-        // handle case where there are no encrypted keychains by allowing the user to specify them on the command lines
-        return input.getVariable('key', 'Type user xprv if you agree: ', true)()
-        .then(function() {
-          const hdNode = bitcoin.HDNode.fromBase58(input.key);
-          keychain = {
-            xpub: hdNode.neutered().toBase58(),
-            xprv: hdNode.toBase58(),
-            path: 'm'
-          };
-          return;
-        });
-      })
-      .then(function(result) {
-        if (!result) {
-          return; // If there was no result, then we expect there to be a keychain already
-        }
-        keychain = result;
-        return input.getVariable('password', 'Type wallet password if you agree: ', true)()
-        .then(function() {
-          try {
-            keychain.xprv = self.bitgo.decrypt({ password: input.password, input: keychain.encryptedXprv });
-            self.info('Successfully decrypted user key on local machine..');
-          } catch (e) {
-            throw new Error('Unable to decrypt user keychain');
-          }
-        });
-      });
-    })
-    .then(function() {
-      return wallet.signTransaction({
-        unspents: resultJSON.inputs,
-        transactionHex: transaction.buildIncomplete().toHex(),
-        keychain: keychain
-      });
-    })
-    .then(function(result) {
-      resultJSON.tx = result.tx;
-      self.info('Signed transaction. ');
-      if (!input.prefix) {
-        // if output prefix not provided, use the input file
-        input.prefix = 'ltcrecovery_' + moment().format('YYYYMDHm');
-      }
-      const filename = input.prefix + '.signed.json';
-      fs.writeFileSync(filename, JSON.stringify(resultJSON, null, 2));
-      self.info('Wrote ' + filename);
-    });
-  });
-};
-
-/**
  * Aids in the recovery of BCH that was sent to a Bitcoin (non-SegWit) address
  * It creates a half signed transaction using the users private keys and
  * then needs to be signed by BitGo for the transaction to be complete.
@@ -3365,6 +3126,62 @@ BGCL.prototype.handleRecoverBTCFromBCH = co(function *() {
     bitgo: this.bitgo,
     sourceCoin: 'btc',
     recoveryType: 'bch',
+    test: !!this.args.test,
+    logger: this.info
+  });
+
+  yield recoveryTool.buildTransaction({
+    sourceWallet: sourceWallet,
+    recoveryWallet: recoveryWallet,
+    faultyTxId: txid,
+    recoveryAddress: recoveryAddress
+  });
+
+  // get prv and sign transaction
+  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ')();
+
+  if (!input.passphrase) {
+    yield input.getPassword('prv', 'Please enter your private key: ')();
+  }
+
+  yield recoveryTool.signTransaction({
+    passphrase: input.passphrase,
+    prv: input.prv
+  });
+
+  recoveryTool.saveToFile();
+});
+
+/**
+ * Aids in the recovery of Litecoin that was sent to a BitCoin address
+ * It creates a half signed transaction using the users private keys and
+ * then needs to be signed by BitGo for the transaction to be complete.
+ * This function only works on Litecoin mainnet.
+ */
+BGCL.prototype.handleRecoverLitecoin = co(function *() {
+  const printSeparator = () => { this.info(_.repeat('=', 80)); };
+
+  // Find unspents on BCH Chain
+  const input = new UserInput(this.args);
+
+  this.info('This tool will help you construct a transaction to recover LTC mistakenly sent to a BTC address.');
+
+  printSeparator();
+
+  yield input.getVariable('sourceWallet', 'Please enter the wallet ID the faulty transaction originated from: ', true)();
+  // Right now, we need this, but once we have getWalletByAddress we can remove this
+  yield input.getVariable('recoveryWallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
+  yield input.getVariable('txid', 'Please enter the transaction ID of your faulty transaction: ', true)();
+  yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BCH to: ', true)();
+
+  printSeparator();
+
+  const { txid, recoveryAddress, sourceWallet, recoveryWallet } = input;
+
+  const recoveryTool = new RecoveryTool({
+    bitgo: this.bitgo,
+    sourceCoin: 'ltc',
+    recoveryType: 'btc',
     test: !!this.args.test,
     logger: this.info
   });
