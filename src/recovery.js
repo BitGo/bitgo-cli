@@ -32,8 +32,8 @@ const CrossChainRecoveryTool = function CrossChainRecoveryTool(opts) {
   }
 
   this._setCoinInstances(opts.sourceCoin, opts.recoveryType);
-  this.wallets = { source: null, dest: null };
-  this.addresses = { source: null, dest: null };
+  this.wallet = null;
+  this.addresses = null;
 
   this.feeRates = {
     bch: 20,
@@ -95,8 +95,10 @@ CrossChainRecoveryTool.prototype._log = function _log(...args) {
 };
 
 
-CrossChainRecoveryTool.prototype.setWallet = function setWallet(coinType, walletId) {
+CrossChainRecoveryTool.prototype.setWallet = function setWallet(walletId) {
   return co(function *() {
+    const coinType = this.recoveryCoin.type;
+
     if (!coinType) {
       throw new Error('Please provide coin type');
     }
@@ -138,17 +140,11 @@ CrossChainRecoveryTool.prototype.setWallet = function setWallet(coinType, wallet
       throw new Error(`Cannot find ${coinType} wallet.`);
     }
 
-    if (this.sourceCoin.type === coinType) {
-      this.wallets.source = wallet;
-      const res = yield wallet.addresses({});
-      this.addresses.source = res.addresses;
-    }
 
-    if (this.recoveryCoin.type === coinType) {
-      this.wallets.dest = wallet;
-      const res = yield wallet.addresses({});
-      this.addresses.dest = res.addresses;
-    }
+    this.wallet = wallet;
+    const res = yield wallet.addresses({});
+    this.addresses = res.addresses;
+
   }).call(this);
 };
 
@@ -176,7 +172,7 @@ CrossChainRecoveryTool.prototype.findUnspents = function findUnspents(faultyTxId
         address = this.sourceCoin.canonicalAddress(address, 1);
       }
 
-      return _.find(this.addresses.dest, { address });
+      return _.find(this.addresses, { address });
     });
 
 
@@ -220,7 +216,7 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
       }
 
       const searchAddress = this.sourceCoin.type.endsWith('ltc') ? this.sourceCoin.canonicalAddress(unspent.address, 1) : unspent.address;
-      const unspentAddress = this.addresses.dest.find((address) => address.address === searchAddress);
+      const unspentAddress = this.addresses.find((address) => address.address === searchAddress);
 
       // This sometimes happens when a wallet has a lot of receive addresses
       if (!unspentAddress) {
@@ -243,8 +239,8 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
       let inputData = {};
 
       // Add v1 specific input fields
-      if (this.wallets.dest.isV1) {
-        const addressInfo = yield this.wallets.dest.address({ address: unspentAddress.address });
+      if (this.wallet.isV1) {
+        const addressInfo = yield this.wallet.address({ address: unspentAddress.address });
 
         unspentAddress.path = unspentAddress.path || `/${unspentAddress.chain}/${unspentAddress.index}`;
         const [txid, nOut] = unspent.id.split(':');
@@ -267,8 +263,8 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
           witnessScript: unspentAddress.coinSpecific.witnessScript,
           index: unspentAddress.index,
           chain: unspentAddress.chain,
-          wallet: this.wallets.dest.id(),
-          fromWallet: this.wallets.dest.id()
+          wallet: this.wallet.id(),
+          fromWallet: this.wallet.id()
         };
       }
 
@@ -331,7 +327,7 @@ CrossChainRecoveryTool.prototype.buildOutputs = function buildOutputs(recoveryAd
     address: recoveryAddress,
     value: outputAmount,
     valueString: outputAmount.toString(),
-    wallet: this.wallets.source.id(),
+    wallet: this.wallet.id(),
     change: false
   };
 
@@ -366,7 +362,7 @@ CrossChainRecoveryTool.prototype.getKeys = function getPrv(passphrase) {
 
     let keychain;
     try {
-      keychain = yield this.wallets.dest.getEncryptedUserKeychain();
+      keychain = yield this.wallet.getEncryptedUserKeychain();
     } catch (e) {
       if (e.status !== 404) {
         throw e;
@@ -377,7 +373,7 @@ CrossChainRecoveryTool.prototype.getKeys = function getPrv(passphrase) {
       throw new Error('You have an encrypted user keychain - please provide the passphrase to decrypt it');
     }
 
-    if (this.wallets.dest.isV1) {
+    if (this.wallet.isV1) {
       if (!keychain) {
         throw new Error('V1 wallets need a user keychain - could not find the proper keychain. Aborting');
       }
@@ -385,7 +381,7 @@ CrossChainRecoveryTool.prototype.getKeys = function getPrv(passphrase) {
 
     if (keychain) {
       try {
-        const encryptedPrv = this.wallets.dest.isV1 ? keychain.encryptedXprv : keychain.encryptedPrv;
+        const encryptedPrv = this.wallet.isV1 ? keychain.encryptedXprv : keychain.encryptedPrv;
         prv = this.bitgo.decrypt({ input: encryptedPrv, password: passphrase });
       } catch (e) {
         throw new Error('Error reading private key. Please check that you have the correct wallet passphrase');
@@ -400,10 +396,10 @@ CrossChainRecoveryTool.prototype.saveToFile = function saveToFile(fileName) {
   fileName = fileName || `${this.sourceCoin.type}r-${this.faultyTxId.slice(0, 6)}.signed.json`;
 
   const fileData = {
-    version: this.wallets.dest.isV1 ? 1 : 2,
+    version: this.wallet.isV1 ? 1 : 2,
     sourceCoin: this.sourceCoin.type,
     recoveryCoin: this.recoveryCoin.type,
-    walletId: this.wallets.dest.id(),
+    walletId: this.wallet.id(),
     txHex: this.halfSignedRecoveryTx.txHex || this.halfSignedRecoveryTx.tx,
     txInfo: this.txInfo
   };
@@ -415,10 +411,9 @@ CrossChainRecoveryTool.prototype.saveToFile = function saveToFile(fileName) {
   return fileName;
 };
 
-CrossChainRecoveryTool.prototype.buildTransaction = function buildTransaction({ sourceWallet, recoveryWallet, faultyTxId, recoveryAddress }) {
+CrossChainRecoveryTool.prototype.buildTransaction = function buildTransaction({ wallet, faultyTxId, recoveryAddress }) {
   return co(function *() {
-    yield this.setWallet(this.sourceCoin.type, sourceWallet);
-    yield this.setWallet(this.recoveryCoin.type, recoveryWallet);
+    yield this.setWallet(this.recoveryCoin.type, wallet);
 
     yield this.findUnspents(faultyTxId);
     yield this.buildInputs();

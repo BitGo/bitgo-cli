@@ -659,8 +659,7 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Helper tool to craft transaction to recover Litecoin mistakenly sent to BitGo Bitcoin multisig addresses on the Litecoin network'
   });
   recoverLitecoin.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
-  recoverLitecoin.addArgument(['-s', '--sourceWallet'], { help: 'The wallet ID the faulty transaction originated from' });
-  recoverLitecoin.addArgument(['-r', '--recoveryWallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
+  recoverLitecoin.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
   recoverLitecoin.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
   recoverLitecoin.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
@@ -669,8 +668,7 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Helper tool to craft transaction to recover BCH mistakenly sent to BitGo Bitcoin multisig addresses on the BTC network'
   });
   recoverBch.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
-  recoverBch.addArgument(['-s', '--sourceWallet'], { help: 'The wallet ID the faulty transaction originated from' });
-  recoverBch.addArgument(['-r', '--recoveryWallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
+  recoverBch.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
   recoverBch.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
   recoverBch.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
@@ -679,8 +677,7 @@ BGCL.prototype.createArgumentParser = function() {
     help: 'Helper tool to craft transaction to recover BTC mistakenly sent to BitGo multisig addresses on the BCH network'
   });
   recoverBtc.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
-  recoverBtc.addArgument(['-s', '--sourceWallet'], { help: 'The wallet ID the faulty transaction originated from' });
-  recoverBtc.addArgument(['-r', '--recoveryWallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
+  recoverBtc.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BCH wallet that received the funds' });
   recoverBtc.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
   recoverBtc.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
@@ -3053,15 +3050,14 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
 
   printSeparator();
 
-  yield input.getVariable('sourceWallet', 'Please enter the wallet ID the faulty transaction originated from: ', true)();
   // Right now, we need this, but once we have getWalletByAddress we can remove this
-  yield input.getVariable('recoveryWallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
+  yield input.getVariable('wallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
   yield input.getVariable('txid', 'Please enter the transaction ID of your faulty transaction: ', true)();
   yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BCH to: ', true)();
 
   printSeparator();
 
-  const { txid, recoveryAddress, sourceWallet, recoveryWallet } = input;
+  const { txid, recoveryAddress, wallet } = input;
 
   const recoveryTool = new RecoveryTool({
     bitgo: this.bitgo,
@@ -3072,8 +3068,7 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
   });
 
   yield recoveryTool.buildTransaction({
-    sourceWallet: sourceWallet,
-    recoveryWallet: recoveryWallet,
+    wallet: wallet,
     faultyTxId: txid,
     recoveryAddress: recoveryAddress
   });
@@ -3112,15 +3107,14 @@ BGCL.prototype.handleRecoverBTCFromBCH = co(function *() {
 
   printSeparator();
 
-  yield input.getVariable('sourceWallet', 'Please enter the wallet ID the faulty transaction originated from: ', true)();
   // Right now, we need this, but once we have getWalletByAddress we can remove this
-  yield input.getVariable('recoveryWallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
+  yield input.getVariable('wallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
   yield input.getVariable('txid', 'Please enter the transaction ID of your faulty transaction: ', true)();
   yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BCH to: ', true)();
 
   printSeparator();
 
-  const { txid, recoveryAddress, sourceWallet, recoveryWallet } = input;
+  const { txid, recoveryAddress, wallet } = input;
 
   const recoveryTool = new RecoveryTool({
     bitgo: this.bitgo,
@@ -3131,8 +3125,7 @@ BGCL.prototype.handleRecoverBTCFromBCH = co(function *() {
   });
 
   yield recoveryTool.buildTransaction({
-    sourceWallet: sourceWallet,
-    recoveryWallet: recoveryWallet,
+    wallet: wallet,
     faultyTxId: txid,
     recoveryAddress: recoveryAddress
   });
@@ -3168,15 +3161,14 @@ BGCL.prototype.handleRecoverLitecoin = co(function *() {
 
   printSeparator();
 
-  yield input.getVariable('sourceWallet', 'Please enter the wallet ID the faulty transaction originated from: ', true)();
   // Right now, we need this, but once we have getWalletByAddress we can remove this
-  yield input.getVariable('recoveryWallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
+  yield input.getVariable('wallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
   yield input.getVariable('txid', 'Please enter the transaction ID of your faulty transaction: ', true)();
   yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BCH to: ', true)();
 
   printSeparator();
 
-  const { txid, recoveryAddress, sourceWallet, recoveryWallet } = input;
+  const { txid, recoveryAddress, wallet } = input;
 
   const recoveryTool = new RecoveryTool({
     bitgo: this.bitgo,
@@ -3187,8 +3179,7 @@ BGCL.prototype.handleRecoverLitecoin = co(function *() {
   });
 
   yield recoveryTool.buildTransaction({
-    sourceWallet: sourceWallet,
-    recoveryWallet: recoveryWallet,
+    wallet: wallet,
     faultyTxId: txid,
     recoveryAddress: recoveryAddress
   });

@@ -30,7 +30,7 @@
   "homepage": "https://github.com/BitGo/bitgo-cli",
   "dependencies": {
     "argparse": "1.0.2",
-    "bitgo": "4.17.0",
+    "bitgo": "^4.17.1",
     "bluebird": "~3.5.1",
     "bs58check": "1.0.5",
     "lodash": "4.17.4",

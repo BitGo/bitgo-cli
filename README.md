@@ -605,17 +605,28 @@ recoversafehdbch    Helper tool to craft transaction to recover BCH from
 ```
 
 # BitGo Recovery Tools
-Bitgo-cli contains a number of utility functions for recovering funds from inaccessible wallets. The following recoveries can be performed:
-1. Recover BCH from a migrated legacy SafeHD Wallet
-2. Recover Litecoin mistakenly sent to a BitGo Bitcoin address
-3. Recover BCH mistakenly sent to a BitGo Bitcoin non-SegWit address
+BitGo CLI contains a number of utility functions for recovering funds from inaccessible wallets. The following recoveries can be performed:
+1. Recover BCH and BTG from a migrated legacy SafeHD Wallet
+2. Recover LTC sent to a BTC wallet
+3. Recover BCH sent to a BTC wallet (non-SegWit address)
+4. Recover BTC sent to a BCH wallet
 
+Run `bitgo util -h` for a full list of recovery functions and their respective commands.
+
+
+## Legacy SafeHD Recoveries
 All recoveries can be accessed via `bitgo util` and require the following pieces of information:
-1) The wallet ID that sent the faulty transaction
-2) The wallet ID of the wallet the 'wrong chain' address belongs to
-3) The transaction ID of the faulty transaction
-4) A destination address to send the recovered funds to
-5) The wallet passphrase (or prv) for the wallet  the 'wrong chain' address belongs to
+1) The destination address to send the recovered funds to
+2) The wallet passphrase of the legacy SafeHD wallet
+
+You will be prompted to enter this data after starting the tool. This tool will construct, sign, and broadcast the transaction, so once the tool is complete, any transactions are irreversible.
+
+## Wrong Chain Recoveries
+All recoveries can be accessed via `bitgo util` and require the following pieces of information:
+1) The wallet ID of the wallet that received the 'wrong funds'
+2) The transaction ID of the misdirected transaction
+3) A destination address to send the recovered funds to (should belong to the original chain funds were sent from)
+4) The wallet passphrase (or xprv) for the wallet that received the misplaced funds
 
 You will be prompted to enter this data after starting the tool.
 
@@ -625,7 +636,6 @@ $ bitgo login (enter login information)
 $ bitgo util recoverbch --test
 This tool will help you construct a transaction to recover BCH mistakenly sent to a non-SegWit BTC address.
 ================================================================================
-Please enter the wallet ID the faulty transaction originated from: 5a21bb7d65662fd407b07ae280c211cf
 Please enter the wallet ID of the BTC wallet that received the funds: 5a21bbe965662fd407b07e3f794d4a8b
 Please enter the transaction ID of your faulty transaction: 842a9193cca39e4e4f5e7db43a402ccf93661b35f8a9df26f40aeddf27644c36
 Please enter the address you wish to recover your BCH to: 2NEv4PivtrqShHdnA6y6eC2QkeHh4YijZED
@@ -651,7 +661,7 @@ Half-signed transaction:
 Saved recovery transaction info to ./bchr-842a919.signed.json
 ```
 
-After running the tool, bitgo-cli will save a local recovery JSON file. You should verify the transaction using a public transaction decoder - if you are satisfied, submit the recovery transaction file to support@bitgo.com for co-siging and broadcast.
+After running the tool, bitgo-cli will save a local recovery JSON file. You should verify the transaction using a public transaction decoder - if you are satisfied, submit the recovery transaction file to support@bitgo.com for co-signing.
 
 # Developing
 
