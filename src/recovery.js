@@ -413,7 +413,7 @@ CrossChainRecoveryTool.prototype.saveToFile = function saveToFile(fileName) {
 
 CrossChainRecoveryTool.prototype.buildTransaction = function buildTransaction({ wallet, faultyTxId, recoveryAddress }) {
   return co(function *() {
-    yield this.setWallet(this.recoveryCoin.type, wallet);
+    yield this.setWallet(wallet);
 
     yield this.findUnspents(faultyTxId);
     yield this.buildInputs();
