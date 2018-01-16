@@ -172,9 +172,16 @@ CrossChainRecoveryTool.prototype.findUnspents = function findUnspents(faultyTxId
         address = this.sourceCoin.canonicalAddress(address, 1);
       }
 
+      if (this.recoveryCoin.type.endsWith('ltc')) {
+        address = this.recoveryCoin.canonicalAddress(address, 2);
+      }
+
       return _.find(this.addresses, { address });
     });
 
+    if (outputAddresses.length === 0) {
+      throw new Error('Could not find tx outputs belonging to the specified wallet. Please check the given parameters.');
+    }
 
     // Get unspents for addresses
     const ADDRESS_UNSPENTS_URL = this.sourceCoin.url(`/public/addressUnspents/${outputAddresses.join(',')}`);
@@ -192,7 +199,7 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
 
     unspents = unspents || this.unspents;
 
-    if (!unspents) {
+    if (!unspents || unspents.length === 0) {
       throw new Error('Could not find unspents. Either supply an argument or call findUnspents');
     }
 
@@ -215,12 +222,22 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
         throw new Error('Warning! It appears one of the unspents is on a Segwit address. The tool only recovers BCH from non-Segwit BTC addresses. Aborting.');
       }
 
-      const searchAddress = this.sourceCoin.type.endsWith('ltc') ? this.sourceCoin.canonicalAddress(unspent.address, 1) : unspent.address;
+      let searchAddress = unspent.address;
+
+      if (this.sourceCoin.type.endsWith('ltc')) {
+        searchAddress = this.sourceCoin.canonicalAddress(searchAddress, 1);
+      }
+
+      if (this.recoveryCoin.type.endsWith('ltc')) {
+        searchAddress = this.recoveryCoin.canonicalAddress(searchAddress, 2);
+      }
+
       const unspentAddress = this.addresses.find((address) => address.address === searchAddress);
 
       // This sometimes happens when a wallet has a lot of receive addresses
       if (!unspentAddress) {
-        return;
+        this._log('Could not find address on wallet for', searchAddress);
+        continue;
       }
 
       this._log(`Found ${unspent.value * 1e-8} ${this.sourceCoin.type} at address ${unspent.address}`);
@@ -273,7 +290,7 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
       txInfo.inputAmount += parseInt(unspent.value, 10);
       totalFound += parseInt(unspent.value, 10);
     }
-
+    
     txInfo.unspents = _.clone(txInfo.inputs);
 
     // Normalize total found to base unit before we print it out

@@ -654,7 +654,7 @@ BGCL.prototype.createArgumentParser = function() {
   });
 
   // recoverLitecoin
-  const recoverLitecoin = utilParser.addParser('recoverltc', {
+  const recoverLitecoin = utilParser.addParser('recoverltcfrombtc', {
     addHelp: true,
     help: 'Helper tool to craft transaction to recover Litecoin mistakenly sent to BitGo Bitcoin multisig addresses on the Litecoin network'
   });
@@ -663,7 +663,7 @@ BGCL.prototype.createArgumentParser = function() {
   recoverLitecoin.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
   recoverLitecoin.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
-  const recoverBch = utilParser.addParser('recoverbch', {
+  const recoverBch = utilParser.addParser('recoverbchfrombtc', {
     addHelp: true,
     help: 'Helper tool to craft transaction to recover BCH mistakenly sent to BitGo Bitcoin multisig addresses on the BTC network'
   });
@@ -672,14 +672,23 @@ BGCL.prototype.createArgumentParser = function() {
   recoverBch.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
   recoverBch.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
-  const recoverBtc = utilParser.addParser('recoverbtc', {
+  const recoverBtcFromBch = utilParser.addParser('recoverbtcfrombch', {
     addHelp: true,
     help: 'Helper tool to craft transaction to recover BTC mistakenly sent to BitGo multisig addresses on the BCH network'
   });
-  recoverBtc.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
-  recoverBtc.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BCH wallet that received the funds' });
-  recoverBtc.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
-  recoverBtc.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
+  recoverBtcFromBch.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
+  recoverBtcFromBch.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BCH wallet that received the funds' });
+  recoverBtcFromBch.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
+  recoverBtcFromBch.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
+
+  const recoverBtcFromLtc = utilParser.addParser('recoverbtcfromltc', {
+    addHelp: true,
+    help: 'Helper tool to craft transaction to recover BTC mistakenly sent to BitGo multisig addresses on the LTC network'
+  });
+  recoverBtcFromLtc.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
+  recoverBtcFromLtc.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BCH wallet that received the funds' });
+  recoverBtcFromLtc.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
+  recoverBtcFromLtc.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
   // recover BCH from migrated legacy safehd wallet
   const recoverBCHFromSafeHD = utilParser.addParser('recoversafehdbch', {
@@ -710,12 +719,14 @@ BGCL.prototype.createArgumentParser = function() {
 
 BGCL.prototype.handleUtil = function() {
   switch (this.args.utilCmd) {
-    case 'recoverltc':
-      return this.handleRecoverLitecoin();
-    case 'recoverbch':
+    case 'recoverltcfrombtc':
+      return this.handleRecoverLTCFromBTC();
+    case 'recoverbchfrombtc':
       return this.handleRecoverBCHFromBTCNonSegWit();
-    case 'recoverbtc':
+    case 'recoverbtcfrombch':
       return this.handleRecoverBTCFromBCH();
+    case 'recoverbtcfromltc':
+      return this.handleRecoverBTCFromLTC();
     case 'recoversafehdbch':
       return this.handleRecoverBCHFromSafeHD();
     case 'recoversafehdbtg':
@@ -3108,9 +3119,9 @@ BGCL.prototype.handleRecoverBTCFromBCH = co(function *() {
   printSeparator();
 
   // Right now, we need this, but once we have getWalletByAddress we can remove this
-  yield input.getVariable('wallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
+  yield input.getVariable('wallet', 'Please enter the wallet ID of the BCH wallet that received the funds: ', true)();
   yield input.getVariable('txid', 'Please enter the transaction ID of your faulty transaction: ', true)();
-  yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BCH to: ', true)();
+  yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BTC to: ', true)();
 
   printSeparator();
 
@@ -3146,12 +3157,69 @@ BGCL.prototype.handleRecoverBTCFromBCH = co(function *() {
 });
 
 /**
+ * Aids in the recovery of BTC that was sent to an LTC address
+ * It creates a half signed transaction using the users private keys and
+ * then needs to be signed by BitGo for the transaction to be complete.
+ *
+ * The user must initially input the faulty tx id and a destination address for recovery.
+ * This build and apply a signature to a recovery transaction, which can then be submitted
+ * to BitGo for cosigning and broadcasting.
+ */
+BGCL.prototype.handleRecoverBTCFromLTC = co(function *() {
+  const printSeparator = () => { this.info(_.repeat('=', 80)); };
+
+  // Find unspents on BCH Chain
+  const input = new UserInput(this.args);
+
+  this.info('This tool will help you construct a transaction to recover BTC mistakenly sent to an LTC address.');
+
+  printSeparator();
+
+  // Right now, we need this, but once we have getWalletByAddress we can remove this
+  yield input.getVariable('wallet', 'Please enter the wallet ID of the LTC wallet that received the funds: ', true)();
+  yield input.getVariable('txid', 'Please enter the transaction ID of your faulty transaction: ', true)();
+  yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BTC to: ', true)();
+
+  printSeparator();
+
+  const { txid, recoveryAddress, wallet } = input;
+
+  const recoveryTool = new RecoveryTool({
+    bitgo: this.bitgo,
+    sourceCoin: 'btc',
+    recoveryType: 'ltc',
+    test: !!this.args.test,
+    logger: this.info
+  });
+
+  yield recoveryTool.buildTransaction({
+    wallet: wallet,
+    faultyTxId: txid,
+    recoveryAddress: recoveryAddress
+  });
+
+  // get prv and sign transaction
+  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ')();
+
+  if (!input.passphrase) {
+    yield input.getPassword('prv', 'Please enter your private key: ')();
+  }
+
+  yield recoveryTool.signTransaction({
+    passphrase: input.passphrase,
+    prv: input.prv
+  });
+
+  recoveryTool.saveToFile();
+});
+
+/**
  * Aids in the recovery of Litecoin that was sent to a BitCoin address
  * It creates a half signed transaction using the users private keys and
  * then needs to be signed by BitGo for the transaction to be complete.
  * This function only works on Litecoin mainnet.
  */
-BGCL.prototype.handleRecoverLitecoin = co(function *() {
+BGCL.prototype.handleRecoverLTCFromBTC = co(function *() {
   const printSeparator = () => { this.info(_.repeat('=', 80)); };
 
   // Find unspents on BCH Chain
@@ -3164,7 +3232,7 @@ BGCL.prototype.handleRecoverLitecoin = co(function *() {
   // Right now, we need this, but once we have getWalletByAddress we can remove this
   yield input.getVariable('wallet', 'Please enter the wallet ID of the BTC wallet that received the funds: ', true)();
   yield input.getVariable('txid', 'Please enter the transaction ID of your faulty transaction: ', true)();
-  yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your BCH to: ', true)();
+  yield input.getVariable('recoveryAddress', 'Please enter the address you wish to recover your LTC to: ', true)();
 
   printSeparator();
 
