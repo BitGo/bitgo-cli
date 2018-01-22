@@ -165,23 +165,44 @@ CrossChainRecoveryTool.prototype.findUnspents = function findUnspents(faultyTxId
 
     // Get output addresses that do not belong to wallet
     // These are where the 'lost coins' live
-    const outputAddresses = faultyTxInfo.outputs
-    .map((input) => input.address)
-    .filter((address) => {
+    const txOutputAddresses = faultyTxInfo.outputs
+    .map((input) => input.address);
+
+    let outputAddresses = [];
+    for (let address of txOutputAddresses) {
       if (this.sourceCoin.type.endsWith('ltc')) {
-        address = this.sourceCoin.canonicalAddress(address, 1);
+        try {
+          address = this.sourceCoin.canonicalAddress(address, 1);
+        } catch (e) {
+          break;
+        }
       }
 
       if (this.recoveryCoin.type.endsWith('ltc')) {
-        address = this.recoveryCoin.canonicalAddress(address, 2);
+        try {
+          address = this.recoveryCoin.canonicalAddress(address, 2);
+        } catch (e) {
+          break;
+        }
       }
 
-      return _.find(this.addresses, { address });
-    });
+      try {
+        const walletAddress = yield this.wallet.getAddress({ address: address });
+        outputAddresses.push(walletAddress.address);
+      } catch (e) {
+        console.log(`Address ${address} not found on wallet`);
+      }
+    }
 
     if (outputAddresses.length === 0) {
       throw new Error('Could not find tx outputs belonging to the specified wallet. Please check the given parameters.');
     }
+
+    if (this.recoveryCoin.type.endsWith('ltc')) {
+      outputAddresses = outputAddresses.map((address) => this.recoveryCoin.canonicalAddress(address, 1));
+    }
+
+    this._log(`Finding unspents for these output addresses: ${outputAddresses.join(', ')}`);
 
     // Get unspents for addresses
     const ADDRESS_UNSPENTS_URL = this.sourceCoin.url(`/public/addressUnspents/${outputAddresses.join(',')}`);
@@ -232,11 +253,11 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
         searchAddress = this.recoveryCoin.canonicalAddress(searchAddress, 2);
       }
 
-      const unspentAddress = this.addresses.find((address) => address.address === searchAddress);
-
-      // This sometimes happens when a wallet has a lot of receive addresses
-      if (!unspentAddress) {
-        this._log('Could not find address on wallet for', searchAddress);
+      let unspentAddress;
+      try {
+        unspentAddress = yield this.wallet.getAddress({ address: searchAddress });
+      } catch (e) {
+        this._log(`Could not find address on wallet for ${searchAddress}`);
         continue;
       }
 

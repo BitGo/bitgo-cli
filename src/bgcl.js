@@ -139,7 +139,7 @@ UserInput.prototype.getVariable = function(name, question, required, defaultValu
   };
 };
 
-UserInput.prototype.getPassword = function(name, question, confirm) {
+UserInput.prototype.getPassword = function(name, question, confirm, allowBlank) {
   const self = this;
   let password;
 
@@ -148,7 +148,7 @@ UserInput.prototype.getPassword = function(name, question, confirm) {
       if (self[name]) {
         return;
       }
-      return self.promptPassword(question)
+      return self.promptPassword(question, allowBlank)
       .then(function(value) {
         password = value;
         if (confirm) {
@@ -3085,7 +3085,7 @@ BGCL.prototype.handleRecoverBCHFromBTCNonSegWit = co(function *() {
   });
 
   // get prv and sign transaction
-  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ')();
+  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ', false, true)();
 
   if (!input.passphrase) {
     yield input.getPassword('prv', 'Please enter your private key: ', true)();
@@ -3142,7 +3142,7 @@ BGCL.prototype.handleRecoverBTCFromBCH = co(function *() {
   });
 
   // get prv and sign transaction
-  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ')();
+  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ', false, true)();
 
   if (!input.passphrase) {
     yield input.getPassword('prv', 'Please enter your private key: ')();
@@ -3199,7 +3199,7 @@ BGCL.prototype.handleRecoverBTCFromLTC = co(function *() {
   });
 
   // get prv and sign transaction
-  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ')();
+  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ', false, true)();
 
   if (!input.passphrase) {
     yield input.getPassword('prv', 'Please enter your private key: ')();
@@ -3253,7 +3253,7 @@ BGCL.prototype.handleRecoverLTCFromBTC = co(function *() {
   });
 
   // get prv and sign transaction
-  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ')();
+  yield input.getPassword('passphrase', 'Please enter your wallet passphrase (leave blank if you know the private key): ', false, true)();
 
   if (!input.passphrase) {
     yield input.getPassword('prv', 'Please enter your private key: ')();
