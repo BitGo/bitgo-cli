@@ -697,6 +697,7 @@ BGCL.prototype.createArgumentParser = function() {
     usage: 'First, select the legacy SafeHD wallet from which you would like to recover the BCH:\n\tbitgo wallet [wallet]\nThen, run this command:\n\tbitgo util recoversafehdbch [-h] [-d DEST]'
   });
   recoverBCHFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
+  recoverBCHFromSafeHD.addArgument(['-f', '--feerate'], { help: 'the fee rate to use' });
 
   // recover BTG from migrated legacy safehd wallet
   const recoverBTGFromSafeHD = utilParser.addParser('recoversafehdbtg', {
@@ -705,6 +706,7 @@ BGCL.prototype.createArgumentParser = function() {
     usage: 'First, select the legacy SafeHD wallet from which you would like to recover the BTG:\n\tbitgo wallet [wallet]\nThen, run this command:\n\tbitgo util recoversafehdbtg [-h] [-d DEST]'
   });
   recoverBTGFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
+  recoverBCHFromSafeHD.addArgument(['-f', '--feerate'], { help: 'the fee rate to use' });
 
   // help
   const help = subparsers.addParser('help', {
@@ -2863,6 +2865,10 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
   yield this.ensureWallet();
   yield input.getVariable('dest', 'Destination address: ')();
   const destinationAddress = input.dest;
+
+  const BCH_DEFAULT_FEE_RATE = 50000;
+  const feeRateToUse = input.feerate || BCH_DEFAULT_FEE_RATE;
+
   try {
     bitcoin.address.fromBase58Check(destinationAddress);
   } catch (e) {
@@ -2875,11 +2881,25 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
 
   const feeToPay = 0.005 * 1e8;
   const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - feeToPay;
-  const txPrebuild = yield migratedWallet.prebuildTransaction({
+  let txPrebuild = yield migratedWallet.prebuildTransaction({
     recipients: [{
       address: destinationAddress,
       amount: amount
-    }]
+    }],
+    feeRate: feeRateToUse,
+    noSplitChange: true
+  });
+
+  const actualFee = txPrebuild.feeInfo.fee;
+  const payGoFee = txPrebuild.feeInfo.payGoFee;
+  const actualAmount = migratedWallet.spendableBalance() - actualFee - payGoFee;
+  txPrebuild = yield migratedWallet.prebuildTransaction({
+    recipients: [{
+      address: destinationAddress,
+      amount: actualAmount
+    }],
+    feeRate: feeRateToUse,
+    noSplitChange: true
   });
 
   yield input.getVariable('password', 'Wallet password: ')();
@@ -2952,6 +2972,10 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
   yield this.ensureWallet();
   yield input.getVariable('dest', 'Destination address: ')();
   const destinationAddress = input.dest;
+
+  const BTG_DEFAULT_FEE_RATE = 50000;
+  const feeRateToUse = input.feerate || BTG_DEFAULT_FEE_RATE;
+
   try {
     bitcoin.address.fromBase58Check(destinationAddress);
   } catch (e) {
@@ -2963,12 +2987,26 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
   const migratedWallet = _.find(btgWallets.wallets, w => w._wallet.migratedFrom === this.session.wallet.id());
 
   const feeToPay = 0.005 * 1e8;
-  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - feeToPay; // we can't spend everything, but it's just $25
-  const txPrebuild = yield migratedWallet.prebuildTransaction({
+  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - feeToPay;
+  let txPrebuild = yield migratedWallet.prebuildTransaction({
     recipients: [{
       address: destinationAddress,
       amount: amount
-    }]
+    }],
+    feeRate: feeRateToUse,
+    noSplitChange: true
+  });
+
+  const actualFee = txPrebuild.feeInfo.fee;
+  const payGoFee = txPrebuild.feeInfo.payGoFee;
+  const actualAmount = migratedWallet.spendableBalance() - actualFee - payGoFee;
+  txPrebuild = yield migratedWallet.prebuildTransaction({
+    recipients: [{
+      address: destinationAddress,
+      amount: actualAmount
+    }],
+    feeRate: feeRateToUse,
+    noSplitChange: true
   });
 
   yield input.getVariable('password', 'Wallet password: ')();
