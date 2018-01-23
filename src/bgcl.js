@@ -706,7 +706,7 @@ BGCL.prototype.createArgumentParser = function() {
     usage: 'First, select the legacy SafeHD wallet from which you would like to recover the BTG:\n\tbitgo wallet [wallet]\nThen, run this command:\n\tbitgo util recoversafehdbtg [-h] [-d DEST]'
   });
   recoverBTGFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
-  recoverBCHFromSafeHD.addArgument(['-f', '--feerate'], { help: 'the fee rate to use' });
+  recoverBTGFromSafeHD.addArgument(['-f', '--feerate'], { help: 'the fee rate to use' });
 
   // help
   const help = subparsers.addParser('help', {
