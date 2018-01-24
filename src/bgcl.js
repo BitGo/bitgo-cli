@@ -2866,8 +2866,9 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
   yield input.getVariable('dest', 'Destination address: ')();
   const destinationAddress = input.dest;
 
-  const BCH_DEFAULT_FEE_RATE = 50000;
+  const BCH_DEFAULT_FEE_RATE = 15000;
   const feeRateToUse = input.feerate || BCH_DEFAULT_FEE_RATE;
+  const OUTPUT_SIZE = 34;
 
   try {
     bitcoin.address.fromBase58Check(destinationAddress);
@@ -2879,28 +2880,26 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
   const bchWallets = yield bch.wallets().list();
   const migratedWallet = _.find(bchWallets.wallets, w => w._wallet.migratedFrom === this.session.wallet.id());
 
-  const feeToPay = 0.005 * 1e8;
-  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - feeToPay;
-  let txPrebuild = yield migratedWallet.prebuildTransaction({
-    recipients: [{
-      address: destinationAddress,
-      amount: amount
-    }],
-    feeRate: feeRateToUse,
-    noSplitChange: true
-  });
+  const maximumSpendable = yield migratedWallet.maximumSpendable({ feeRate: feeRateToUse });
+  const spendableAmount = parseInt(maximumSpendable.maximumSpendable, 10);
 
-  const actualFee = txPrebuild.feeInfo.fee;
-  const payGoFee = txPrebuild.feeInfo.payGoFee;
-  const actualAmount = migratedWallet.spendableBalance() - actualFee - payGoFee;
-  txPrebuild = yield migratedWallet.prebuildTransaction({
-    recipients: [{
-      address: destinationAddress,
-      amount: actualAmount
-    }],
-    feeRate: feeRateToUse,
-    noSplitChange: true
-  });
+  // Account for paygo fee plus fee for paygo output
+  const payGoDeduction = Math.floor(spendableAmount * 0.01) + (OUTPUT_SIZE * (feeRateToUse / 1000));
+  const txAmount = spendableAmount - payGoDeduction;
+
+  let txPrebuild;
+  try {
+    txPrebuild = yield migratedWallet.prebuildTransaction({
+      recipients: [{
+        address: destinationAddress,
+        amount: txAmount
+      }],
+      feeRate: feeRateToUse,
+      noSplitChange: true
+    });
+  } catch (e) {
+    throw new Error('Got error building tx', e);
+  }
 
   yield input.getVariable('password', 'Wallet password: ')();
   const signingKeychain = yield this.session.wallet.getAndPrepareSigningKeychain({ walletPassphrase: input.password });
@@ -2917,7 +2916,6 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
   const txb = bitcoin.TransactionBuilder.fromTransaction(transaction);
   txb.enableBitcoinCash(true);
   txb.setVersion(2);
-
 
   const sigHashType = bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143;
   for (let inputIndex = 0; inputIndex < transaction.ins.length; ++inputIndex) {
@@ -2973,8 +2971,9 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
   yield input.getVariable('dest', 'Destination address: ')();
   const destinationAddress = input.dest;
 
-  const BTG_DEFAULT_FEE_RATE = 50000;
+  const BTG_DEFAULT_FEE_RATE = 5000;
   const feeRateToUse = input.feerate || BTG_DEFAULT_FEE_RATE;
+  const OUTPUT_SIZE = 34;
 
   try {
     bitcoin.address.fromBase58Check(destinationAddress);
@@ -2986,28 +2985,26 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
   const btgWallets = yield btg.wallets().list();
   const migratedWallet = _.find(btgWallets.wallets, w => w._wallet.migratedFrom === this.session.wallet.id());
 
-  const feeToPay = 0.005 * 1e8;
-  const amount = Math.floor(migratedWallet.spendableBalance() * 0.999) - feeToPay;
-  let txPrebuild = yield migratedWallet.prebuildTransaction({
-    recipients: [{
-      address: destinationAddress,
-      amount: amount
-    }],
-    feeRate: feeRateToUse,
-    noSplitChange: true
-  });
+  const maximumSpendable = yield migratedWallet.maximumSpendable({ feeRate: feeRateToUse });
+  const spendableAmount = parseInt(maximumSpendable.maximumSpendable, 10);
 
-  const actualFee = txPrebuild.feeInfo.fee;
-  const payGoFee = txPrebuild.feeInfo.payGoFee;
-  const actualAmount = migratedWallet.spendableBalance() - actualFee - payGoFee;
-  txPrebuild = yield migratedWallet.prebuildTransaction({
-    recipients: [{
-      address: destinationAddress,
-      amount: actualAmount
-    }],
-    feeRate: feeRateToUse,
-    noSplitChange: true
-  });
+  // Account for paygo fee plus fee for paygo output
+  const payGoDeduction = Math.floor(spendableAmount * 0.01) + (OUTPUT_SIZE * (feeRateToUse / 1000));
+  const txAmount = spendableAmount - payGoDeduction;
+
+  let txPrebuild;
+  try {
+    txPrebuild = yield migratedWallet.prebuildTransaction({
+      recipients: [{
+        address: destinationAddress,
+        amount: txAmount
+      }],
+      feeRate: feeRateToUse,
+      noSplitChange: true
+    });
+  } catch (e) {
+    throw new Error('Got error building tx', e);
+  }
 
   yield input.getVariable('password', 'Wallet password: ')();
   const signingKeychain = yield this.session.wallet.getAndPrepareSigningKeychain({ walletPassphrase: input.password });
@@ -3024,7 +3021,6 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
   const txb = bitcoin.TransactionBuilder.fromTransaction(transaction);
   txb.enableBitcoinGold(true);
   txb.setVersion(2);
-
 
   const sigHashType = bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143;
   for (let inputIndex = 0; inputIndex < transaction.ins.length; ++inputIndex) {
