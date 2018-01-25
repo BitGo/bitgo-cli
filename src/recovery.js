@@ -187,10 +187,11 @@ CrossChainRecoveryTool.prototype.findUnspents = function findUnspents(faultyTxId
       }
 
       try {
-        const walletAddress = yield this.wallet.getAddress({ address: address });
+        const methodName = this.wallet.isV1 ? 'address' : 'getAddress';
+        const walletAddress = yield this.wallet[methodName]({ address: address });
         outputAddresses.push(walletAddress.address);
       } catch (e) {
-        console.log(`Address ${address} not found on wallet`);
+        this._log(`Address ${address} not found on wallet`);
       }
     }
 
@@ -255,7 +256,8 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
 
       let unspentAddress;
       try {
-        unspentAddress = yield this.wallet.getAddress({ address: searchAddress });
+        const methodName = this.wallet.isV1 ? 'address' : 'getAddress';
+        unspentAddress = yield this.wallet[methodName]({ address: searchAddress });
       } catch (e) {
         this._log(`Could not find address on wallet for ${searchAddress}`);
         continue;
