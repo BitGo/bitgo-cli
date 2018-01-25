@@ -33,7 +33,6 @@ const CrossChainRecoveryTool = function CrossChainRecoveryTool(opts) {
 
   this._setCoinInstances(opts.sourceCoin, opts.recoveryType);
   this.wallet = null;
-  this.addresses = null;
 
   this.feeRates = {
     bch: 20,
@@ -139,11 +138,8 @@ CrossChainRecoveryTool.prototype.setWallet = function setWallet(walletId) {
     if (!wallet) {
       throw new Error(`Cannot find ${coinType} wallet.`);
     }
-
-
+    
     this.wallet = wallet;
-    const res = yield wallet.addresses({});
-    this.addresses = res.addresses;
 
   }).call(this);
 };
