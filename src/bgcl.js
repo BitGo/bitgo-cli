@@ -708,6 +708,15 @@ BGCL.prototype.createArgumentParser = function() {
   recoverBTGFromSafeHD.addArgument(['-d', '--dest'], { help: 'the destination address' });
   recoverBTGFromSafeHD.addArgument(['-f', '--feerate'], { help: 'the fee rate to use' });
 
+  // Build, sign, and send a transaction using backup key
+  const recoverWithBackupKey = utilParser.addParser('backupkeyrecovery', {
+    addHelp: true,
+    help: 'Helper tool to craft transactions to recover V2 wallets using the backup key'
+  });
+  recoverWithBackupKey.addArgument(['-c', '--coin'], { help: 'the coin type' });
+  recoverWithBackupKey.addArgument(['-w', '--wallet'], { help: 'the wallet ID the backup key belongs to' });
+  recoverWithBackupKey.addArgument(['-d', '--destination'], { help: 'the destination address to send recovered funds to' });
+
   // help
   const help = subparsers.addParser('help', {
     addHelp: true,
@@ -733,6 +742,8 @@ BGCL.prototype.handleUtil = function() {
       return this.handleRecoverBCHFromSafeHD();
     case 'recoversafehdbtg':
       return this.handleRecoverBTGFromSafeHD();
+    case 'backupkeyrecovery':
+      return this.handleBackupKeyRecovery();
     default:
       throw new Error('unknown command');
   }
@@ -3074,6 +3085,65 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
   })
   .result();
   this.info('Signed Transaction: ' + JSON.stringify(fullySignedTx, null, 4));
+});
+
+BGCL.prototype.handleBackupKeyRecovery = co(function *() {
+  const input = new UserInput(this.args);
+
+  yield input.getVariable('coin', 'Please enter the coin type of the wallet: ', true)();
+  yield input.getVariable('wallet', 'Please enter the wallet ID of the wallet you would like to recover: ', true)();
+  yield input.getVariable('destination', 'Please enter the address you wish to recover your funds to: ', true)();
+  // ensure a wallet is selected
+
+  const coin = this.bitgo.coin(input.coin);
+  const wallet = yield coin.wallets().get({ id: input.wallet });
+
+  this.info('Building your recovery transaction...');
+
+  const maximumSpendable = yield wallet.maximumSpendable();
+  const spendableAmount = parseInt(maximumSpendable.maximumSpendable, 10);
+
+  // Account for paygo fee plus fee for paygo output
+  const payGoDeduction = Math.floor(spendableAmount * 0.011);
+  const txAmount = spendableAmount - payGoDeduction;
+
+  let txPrebuild;
+  try {
+    txPrebuild = yield wallet.prebuildTransaction({
+      recipients: [
+        {
+          amount: txAmount,
+          address: input.destination
+        }
+      ]
+    });
+  } catch (e) {
+    throw new Error('Got error building tx', e);
+  }
+
+  yield input.getVariable('encryptedBackupKey', 'Please enter your encrypted backup key (Box B on your Recovery KeyCard): ', true)();
+  yield input.getPassword('passphrase', 'Please enter your wallet passphrase: ', true)();
+
+  let prv;
+  try {
+    prv = this.bitgo.decrypt({ input: input.encryptedBackupKey, password: input.passphrase });
+  } catch (e) {
+    throw new Error('Error decrypting private key. Please check that you have the right combination of encrypted backup and wallet passphrase.');
+  }
+
+  const signedTx = yield wallet.signTransaction({ txPrebuild, prv });
+
+  yield this.handleUnlock();
+
+  try {
+    yield wallet.submitTransaction({
+      txHex: signedTx.txHex
+    });
+
+    this.info('Sent transaction');
+  } catch (e) {
+    throw new Error('Error sending transaction', e);
+  }
 });
 
 /**
