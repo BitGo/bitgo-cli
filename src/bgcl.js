@@ -654,14 +654,14 @@ BGCL.prototype.createArgumentParser = function() {
   });
 
   // recoverLitecoin
-  const recovetLtcFromBtc = utilParser.addParser('recoverltcfrombtc', {
+  const recoverLtcFromBtc = utilParser.addParser('recoverltcfrombtc', {
     addHelp: true,
     help: 'Helper tool to craft transaction to recover Litecoin mistakenly sent to BitGo Bitcoin multisig addresses on the Litecoin network'
   });
-  recovetLtcFromBtc.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
-  recovetLtcFromBtc.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
-  recovetLtcFromBtc.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
-  recovetLtcFromBtc.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
+  recoverLtcFromBtc.addArgument(['-t', '--txid'], { help: 'The tx id of the faulty transaction' });
+  recoverLtcFromBtc.addArgument(['-w', '--wallet'], { help: 'The wallet ID of the BTC wallet that received the funds' });
+  recoverLtcFromBtc.addArgument(['-a', '--recoveryAddress'], { help: 'The address you wish to recover your bch to' });
+  recoverLtcFromBtc.addArgument(['--test'], { nargs: 0, help: 'use testnet' });
 
   const recoverBchFromBtc = utilParser.addParser('recoverbchfrombtc', {
     addHelp: true,
