@@ -5,6 +5,7 @@ const Promise = require('bluebird');
 const co = Promise.coroutine;
 const _ = require('lodash');
 const bitcoin = require('bitgo').bitcoin;
+const moment = require('moment');
 
 /**
  * An instance of the recovery tool, which encapsulates the recovery functions
@@ -138,7 +139,7 @@ CrossChainRecoveryTool.prototype.setWallet = function setWallet(walletId) {
     if (!wallet) {
       throw new Error(`Cannot find ${coinType} wallet.`);
     }
-    
+
     this.wallet = wallet;
 
   }).call(this);
@@ -197,6 +198,10 @@ CrossChainRecoveryTool.prototype.findUnspents = function findUnspents(faultyTxId
 
     if (this.recoveryCoin.type.endsWith('ltc')) {
       outputAddresses = outputAddresses.map((address) => this.recoveryCoin.canonicalAddress(address, 1));
+    }
+
+    if (this.sourceCoin.type.endsWith('ltc')) {
+      outputAddresses = outputAddresses.map((address) => this.sourceCoin.canonicalAddress(address, 2));
     }
 
     this._log(`Finding unspents for these output addresses: ${outputAddresses.join(', ')}`);
@@ -309,7 +314,7 @@ CrossChainRecoveryTool.prototype.buildInputs = function buildInputs(unspents) {
       txInfo.inputAmount += parseInt(unspent.value, 10);
       totalFound += parseInt(unspent.value, 10);
     }
-    
+
     txInfo.unspents = _.clone(txInfo.inputs);
 
     // Normalize total found to base unit before we print it out
@@ -356,6 +361,9 @@ CrossChainRecoveryTool.prototype.buildOutputs = function buildOutputs(recoveryAd
   if (this.sourceCoin.type.endsWith('ltc')) {
     recoveryAddress = this.sourceCoin.canonicalAddress(recoveryAddress, 1);
   }
+
+  this.recoveryAddress = recoveryAddress;
+  this.recoveryAmount = outputAmount;
 
   this.recoveryTx.addOutput(recoveryAddress, outputAmount);
 
@@ -429,13 +437,15 @@ CrossChainRecoveryTool.prototype.getKeys = function getPrv(passphrase) {
 };
 
 CrossChainRecoveryTool.prototype.saveToFile = function saveToFile(fileName) {
-  fileName = fileName || `${this.sourceCoin.type}r-${this.faultyTxId.slice(0, 6)}.signed.json`;
+  fileName = fileName || `${this.sourceCoin.type}r-${this.faultyTxId.slice(0, 6)}-${moment().format('YYYYMMDD')}.signed.json`;
 
   const fileData = {
     version: this.wallet.isV1 ? 1 : 2,
     sourceCoin: this.sourceCoin.type,
     recoveryCoin: this.recoveryCoin.type,
     walletId: this.wallet.id(),
+    recoveryAddress: this.recoveryAddress,
+    recoveryAmount: this.recoveryAmount,
     txHex: this.halfSignedRecoveryTx.txHex || this.halfSignedRecoveryTx.tx,
     txInfo: this.txInfo
   };
