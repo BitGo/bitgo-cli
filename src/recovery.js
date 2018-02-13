@@ -329,7 +329,7 @@ CrossChainRecoveryTool.prototype.setFees = function setFees(recoveryTx) {
   recoveryTx = recoveryTx || this.recoveryTx;
 
   // Determine fee with default fee rate
-  const P2SH_INPUT_SIZE = 295;
+  const P2SH_INPUT_SIZE = 296;
   const OUTPUT_SIZE = 34;
   const TX_OVERHEAD_SIZE = 10;
   const feeRate = this.feeRates[this.sourceCoin.type];
