@@ -2909,7 +2909,8 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
       noSplitChange: true
     });
   } catch (e) {
-    throw new Error('Got error building tx', e);
+    console.error('Got error building tx:');
+    throw e;
   }
 
   yield input.getVariable('password', 'Wallet password: ')();
@@ -3014,7 +3015,8 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
       noSplitChange: true
     });
   } catch (e) {
-    throw new Error('Got error building tx', e);
+    console.error('Got error building tx:');
+    throw e;
   }
 
   yield input.getVariable('password', 'Wallet password: ')();
@@ -3118,7 +3120,8 @@ BGCL.prototype.handleBackupKeyRecovery = co(function *() {
       ]
     });
   } catch (e) {
-    throw new Error('Got error building tx', e);
+    console.error('Got error building tx:');
+    throw e;
   }
 
   yield input.getVariable('encryptedBackupKey', 'Please enter your encrypted backup key (Box B on your Recovery KeyCard): ', true)();
