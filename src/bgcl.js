@@ -1752,8 +1752,8 @@ BGCL.prototype.handleShares = function() {
   })
   .then(function(result) {
     shares = result;
-    let userIds = _.pluck(shares.incoming, 'fromUser');
-    userIds = userIds.concat(_.pluck(shares.outgoing, 'toUser'));
+    let userIds = _.map(shares.incoming, 'fromUser');
+    userIds = userIds.concat(_.map(shares.outgoing, 'toUser'));
     userIds = _.uniq(userIds);
     return self.fetchUsers(userIds);
   })
@@ -2119,7 +2119,7 @@ BGCL.prototype.handleSignTx = function() {
     }
 
     const pubKey = hdNode.neutered().toBase58();
-    const xpubs = _.initial(_.pluck(wallet.keychains, 'xpub'));
+    const xpubs = _.initial(_.map(wallet.keychains, 'xpub'));
     if (!_.includes(xpubs, pubKey)) {
       throw new Error('did not provide a private key valid for the wallet that created this transaction');
     }
