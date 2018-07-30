@@ -2925,8 +2925,7 @@ BGCL.prototype.handleRecoverBCHFromSafeHD = co(function *() {
     throw new Error('length of unspents array should equal to the number of transaction inputs');
   }
 
-  const txb = bitcoin.TransactionBuilder.fromTransaction(transaction);
-  txb.enableBitcoinCash(true);
+  const txb = bitcoin.TransactionBuilder.fromTransaction(transaction, bch.network);
   txb.setVersion(2);
 
   const sigHashType = bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143;
@@ -3031,8 +3030,7 @@ BGCL.prototype.handleRecoverBTGFromSafeHD = co(function *() {
     throw new Error('length of unspents array should equal to the number of transaction inputs');
   }
 
-  const txb = bitcoin.TransactionBuilder.fromTransaction(transaction);
-  txb.enableBitcoinGold(true);
+  const txb = bitcoin.TransactionBuilder.fromTransaction(transaction, btg.network);
   txb.setVersion(2);
 
   const sigHashType = bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143;
