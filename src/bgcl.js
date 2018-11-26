@@ -3,6 +3,7 @@
 const ArgumentParser = require('argparse').ArgumentParser;
 const bitgo = require('bitgo');
 const bitcoin = bitgo.bitcoin;
+const bitcoinMessage = require('bitcoinjs-message');
 
 const bs58check = require('bs58check');
 const crypto = require('crypto');
@@ -25,6 +26,9 @@ const CLI_VERSION = pjson.version;
 
 const request = require('superagent');
 require('superagent-as-promised')(request);
+
+const stellar = require('stellar-base');
+const stellarHd = require('stellar-hd-wallet');
 
 const RecoveryTool = require('./recovery');
 
@@ -565,6 +569,9 @@ BGCL.prototype.createArgumentParser = function() {
   splitKeys.addArgument(['-N', '--nkeys'], { help: 'total number of keys to generate' });
   splitKeys.addArgument(['-p', '--prefix'], { help: 'output file prefix' });
   splitKeys.addArgument(['-e', '--entropy'], { help: 'additional user-supplied entropy' });
+  splitKeys.addArgument(['-s', '--sign'], { help: 'sign all public keys with the private held in the file provided' });
+  splitKeys.addArgument(['-t', '--type'], { help: 'add type xlm to create xlm keys. default is xpub' });
+  splitKeys.addArgument(['-a', '--startIndex'], { help: 'the first index number of this newly generated set of keys' });
 
   const verifySplitKeys = subparsers.addParser('verifysplitkeys', {
     addHelp: true,
@@ -2244,16 +2251,25 @@ BGCL.prototype.handleSendTx = function() {
   });
 };
 
-BGCL.prototype.genKey = function() {
+BGCL.prototype.genKey = function(type) {
   this.addEntropy(128);
   const seedLength = 256 / 32; // 256 bits / 32-bit words
   const seed = sjcl.codec.hex.fromBits(sjcl.random.randomWords(seedLength));
-  const extendedKey = bitcoin.HDNode.fromSeedHex(seed);
-  return {
-    seed: seed,
-    xpub: extendedKey.neutered().toBase58(),
-    xprv: extendedKey.toBase58()
+
+  const keyObj = {
+    seed: seed
   };
+
+  if (type === 'xlm') {
+    const masterXLMNode = stellarHd.fromSeed(seed);
+    keyObj.xlmseed = masterXLMNode.getSecret(0);
+    keyObj.xlmpub = masterXLMNode.getPublicKey(0);
+  } else {
+    const extendedKey = bitcoin.HDNode.fromSeedHex(seed);
+    keyObj.xpub = extendedKey.neutered().toBase58();
+    keyObj.xprv = extendedKey.toBase58();
+  }
+  return keyObj;
 };
 
 BGCL.prototype.handleNewKey = function() {
@@ -2468,12 +2484,17 @@ BGCL.prototype.addUserEntropy = function(userString) {
  */
 BGCL.prototype.genSplitKey = function(params, index) {
   const self = this;
-  const key = this.genKey();
+  const key = this.genKey(params.type);
   const result = {
-    xpub: key.xpub,
     m: params.m,
     n: params.n
   };
+
+  if (params.type === 'xlm') {
+    result.xlmpub = key.xlmpub;
+  } else {
+    result.xpub = key.xpub;
+  }
 
   // If n==1, we're not splitting, just encrypt
   let shares;
@@ -2504,6 +2525,13 @@ BGCL.prototype.genSplitKey = function(params, index) {
 BGCL.prototype.handleSplitKeys = function() {
   const self = this;
   const input = new UserInput(this.args);
+  const args = this.args;
+
+  if (!args.startIndex) {
+    args.startIndex = 0;
+  } else {
+    args.startIndex = parseInt(args.startIndex);
+  }
 
   const getPassword = function(i, n) {
     if (i === n) {
@@ -2514,6 +2542,11 @@ BGCL.prototype.handleSplitKeys = function() {
     .then(function() {
       return getPassword(i + 1, n);
     });
+  };
+
+  const getSigningKeyFromFile = function (filename) {
+    const keyfile = JSON.parse(fs.readFileSync(filename));
+    return new Buffer(keyfile.privateKey);
   };
 
   return Q().then(function() {
@@ -2538,28 +2571,75 @@ BGCL.prototype.handleSplitKeys = function() {
     return getPassword(0, input.n);
   })
   .then(function() {
+
+    let signingKey;
+    if (args.sign) {
+      // get private key from file
+      signingKey = getSigningKeyFromFile(args.sign);
+    }
+
     const keys = _.range(0, input.nkeys).map(function(index) {
       const key = self.genSplitKey(input);
+      const realIndex = index + args.startIndex;
       if (index % 10 === 0) {
-        console.log('Generating key ' + index);
+        console.log('Generating key ' + realIndex);
       }
-      return {
-        index: index,
-        xpub: key.xpub,
+
+      const keyObj = {
+        index: realIndex,
         m: key.m,
         n: key.n,
         seedShares: key.seedShares
       };
+
+      if (args.type === 'xlm') {
+        keyObj.xlmpub = key.xlmpub;
+      } else {
+        keyObj.xpub = key.xpub;
+      }
+
+      // sign xpub and xlmpub
+      if (args.sign) {
+        if (args.type === 'xlm') {
+          const xlmpubSig = bitcoinMessage.sign(keyObj.xlmpub, signingKey, true).toString('base64');
+          keyObj.xlmpubSig = xlmpubSig;
+
+        } else {
+          const xpubSig = bitcoinMessage.sign(keyObj.xpub, signingKey, true).toString('base64');
+          keyObj.xpubSig = xpubSig;
+        }
+      }
+      return keyObj;
     });
+
     let filename = input.prefix + '.json';
+    if (args.type === 'xlm') {
+      filename = 'xlm.' + filename;
+    }
     fs.writeFileSync(filename, JSON.stringify(keys, null, 2));
     console.log('Wrote ' + filename);
-    const csvRows = keys.map(function(key) {
-      return key.index + ',' + key.xpub;
-    });
-    filename = input.prefix + '.xpub.csv';
-    fs.writeFileSync(filename, csvRows.join('\n'));
-    console.log('Wrote ' + filename);
+
+    // Replace CSV with a json
+
+    const pubsFile = [];
+
+    for (let i = 0; i < keys.length; i++) {
+      const index = keys[i].index + '';
+      const entry = {
+        pub: keys[i].xpub || keys[i].xlmpub
+      };
+      if (args.sign) {
+        entry.signature = keys[i].xpubSig || keys[i].xlmpubSig;
+      }
+      entry.path = index;
+      pubsFile.push(entry);
+    }
+    let pubsFilename = input.prefix + '.pubs.json';
+    if (args.type === 'xlm') {
+      pubsFilename = 'xlm.' + pubsFilename;
+    }
+    fs.writeFileSync(pubsFilename, JSON.stringify(pubsFile, null, 2));
+    console.log('Wrote ' + pubsFilename);
   });
 };
 
@@ -2640,7 +2720,8 @@ BGCL.prototype.handleRecoverKeys = function() {
 
     // Get the keys to recover
     keysToRecover = keys.filter(function(key, index) {
-      return indices.indexOf(index) !== -1;
+      // return indices.indexOf(index) !== -1;
+      return indices.indexOf(key.index) !== -1;
     });
 
     console.log('Processing ' + keysToRecover.length + ' keys: ' + indices);
@@ -2666,13 +2747,18 @@ BGCL.prototype.handleRecoverKeys = function() {
       const extendedKey = bitcoin.HDNode.fromSeedHex(seed);
       const xpub = extendedKey.neutered().toBase58();
       const xprv = self.args.verifyonly ? undefined : extendedKey.toBase58();
+
+      const masterXLMNode = stellarHd.fromSeed(seed);
+
       if (!self.args.verifyonly && xpub !== key.xpub) {
         throw new Error("xpubs don't match for key " + key.index);
       }
       return {
         index: key.index,
         xpub: xpub,
-        xprv: xprv
+        xprv: xprv,
+        xlmseed: masterXLMNode.getSecret(0),
+        xlmpub: masterXLMNode.getPublicKey(0)
       };
     });
     self.printJSON(recoveredKeys);
