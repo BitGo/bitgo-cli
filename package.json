@@ -30,12 +30,11 @@
   "homepage": "https://github.com/BitGo/bitgo-cli",
   "dependencies": {
     "argparse": "^1.0.10",
-    "bitgo": "^4.39.2",
+    "bitgo": "^4.43.0",
     "bluebird": "~3.5.1",
     "bs58check": "1.0.5",
     "lodash": "^4.17.11",
     "moment": "^2.22.2",
-    "open": "0.0.5",
     "q": "1.1.2",
     "qr-image": "^3.1.0",
     "read": "1.0.5",
@@ -45,11 +44,11 @@
     "stellar-hd-wallet": "0.0.8",
     "superagent": "^3.8.3",
     "superagent-as-promised": "3.1.1",
-    "underscore.string": "2.4.0"
+    "underscore.string": "^3.3.5"
   },
   "devDependencies": {
     "eslint": "^4.13.1",
-    "mocha": "^3.4.2"
+    "mocha": "^5.2.0"
   },
   "preferGlobal": true
 }

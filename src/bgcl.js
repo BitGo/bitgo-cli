@@ -588,6 +588,13 @@ BGCL.prototype.createArgumentParser = function() {
   recoverKeys.addArgument(['-f', '--file'], { help: 'the input file (JSON format)' });
   recoverKeys.addArgument(['-k', '--keys'], { help: 'comma-separated list of key indices to recover' });
 
+  const krsRecovery = subparsers.addParser('krsrecovery', {
+    addHelp: true,
+    help: "Get master key and derive the correct path, as specified by the input file"
+  });
+  krsRecovery.addArgument(['-f', '--file'], { help: 'the file of sharded keys' });
+  krsRecovery.addArgument(['-r', '--recoveryInfo'], { help: 'the info containing the recovery info (from krsv2)' });
+
   const dumpWalletUserKey = subparsers.addParser('dumpwalletuserkey', {
     addHelp: true,
     help: "Dumps the user's private key (first key in the 3 multi-sig keys) to the output"
@@ -2643,6 +2650,15 @@ BGCL.prototype.handleSplitKeys = function() {
   });
 };
 
+BGCL.prototype.handleKrsRecovery = function() {
+  const recoveryInfo = JSON.parse(fs.readFileSync(this.args.recoveryInfo));
+  const key = recoveryInfo.masterkeypath;
+  const walletkeypath = recoveryInfo.walletkeypath;
+  const coin = recoveryInfo.coin;
+
+
+}
+
 /**
  * Recover a list of keys from the JSON file produced by splitkeys
  */
@@ -2761,7 +2777,11 @@ BGCL.prototype.handleRecoverKeys = function() {
         xlmpub: masterXLMNode.getPublicKey(0)
       };
     });
-    self.printJSON(recoveredKeys);
+    const recoveredObj = {}
+    for (let i=0;i<recoveredKeys.length;i++) {
+      recoveredObj[recoveredKeys[i].index] = recoveredKeys[i];
+    }
+    fs.writeFileSync('.secret-file', JSON.stringify(recoveredObj, null, 2));
   });
 };
 
@@ -3531,6 +3551,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleRecoverKeys();
     case 'recoverkeys':
       return this.handleRecoverKeys();
+    case 'krsrecovery':
+      return this.handleKrsRecovery();
     case 'dumpwalletuserkey':
       return this.handleDumpWalletUserKey();
     case 'newwallet':
