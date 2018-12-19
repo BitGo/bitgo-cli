@@ -17,7 +17,6 @@ const readline = require('readline');
 const secrets = require('secrets.js-grempe');
 const sjcl = require('sjcl');
 const qr = require('qr-image');
-const open = require('open');
 const util = require('util');
 const _ = require('lodash');
 _.string = require('underscore.string');
@@ -1066,7 +1065,7 @@ BGCL.prototype.handleOTPAddTOTP = function() {
     key = res;
     fs.writeFileSync(svgFile, qr.imageSync(key.url, { type: 'svg' }));
     fs.writeFileSync(htmlFile, '<center><img src="totp.svg" width=256 height=256><h2 style="font-family:Helvetica">Scan with Google Authenticator</h2></center>');
-    open(htmlFile);
+    // open(htmlFile);
   })
   .then(input.getVariable('otp', 'Scan QR Code in browser and enter numeric code: ', true))
   .then(input.getVariable('label', 'Label (optional): '))
@@ -2650,14 +2649,36 @@ BGCL.prototype.handleSplitKeys = function() {
   });
 };
 
-BGCL.prototype.handleKrsRecovery = function() {
+BGCL.prototype.handleKrsRecovery = co (function *() {
   const recoveryInfo = JSON.parse(fs.readFileSync(this.args.recoveryInfo));
   const key = recoveryInfo.masterkeypath;
   const walletkeypath = recoveryInfo.walletkeypath;
   const coin = recoveryInfo.coin;
-
-
-}
+  this.args.keys = key;
+  const recoveredObj = yield this.handleRecoverKeys();
+  let output;
+  if (coin === 'xlm' || coin === 'txlm') {
+    // TODO: handle xlm. krs does not derive xlm keys, so we just use the master
+    const prv = recoveredObj[key].xlmseed;
+    const pub = recoveredObj[key].xlmpub;
+    if (pub !== recoveryInfo.backupKey) {
+      throw new Error('Xlm pub does not match the Backup Key in the prepared recovery file');
+    }
+    output = { prv };
+  } else {
+    const masterprv = recoveredObj[key].xprv;
+    const node = bitcoin.HDNode.fromBase58(masterprv);
+    const childnode = node.derivePath(walletkeypath);
+    const childpub = childnode.neutered().toBase58();
+    if (childpub !== recoveryInfo.backupKey) {
+      throw new Error('Derived public key from sharded set does not match Backup Key in prepared recovery file');
+    }
+    const prv = childnode.toBase58();
+    output = { prv };
+  }
+  fs.writeFileSync('.secret-file', JSON.stringify(output));
+  console.log('Got recovery info...');
+});
 
 /**
  * Recover a list of keys from the JSON file produced by splitkeys
@@ -2781,7 +2802,7 @@ BGCL.prototype.handleRecoverKeys = function() {
     for (let i=0;i<recoveredKeys.length;i++) {
       recoveredObj[recoveredKeys[i].index] = recoveredKeys[i];
     }
-    fs.writeFileSync('.secret-file', JSON.stringify(recoveredObj, null, 2));
+    return recoveredObj;
   });
 };
 
