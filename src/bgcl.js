@@ -2784,18 +2784,19 @@ BGCL.prototype.handleRecoverKeys = function() {
       const extendedKey = bitcoin.HDNode.fromSeedHex(seed);
       const xpub = extendedKey.neutered().toBase58();
       const xprv = self.args.verifyonly ? undefined : extendedKey.toBase58();
-
+      const xlmpub = masterXLMNode.getPublicKey(0);
+      const xlmseed = masterXLMNode.getSecret(0);
       const masterXLMNode = stellarHd.fromSeed(seed);
 
-      if (!self.args.verifyonly && xpub !== key.xpub) {
-        throw new Error("xpubs don't match for key " + key.index);
+      if (!self.args.verifyonly && ((key.xpub && xpub !== key.xpub) || (key.xlmpub && xlmpub != key.xlmpub))) {
+        throw new Error("xpubs or xlmpubs don't match for key " + key.index);
       }
       return {
         index: key.index,
-        xpub: xpub,
-        xprv: xprv,
-        xlmseed: masterXLMNode.getSecret(0),
-        xlmpub: masterXLMNode.getPublicKey(0)
+        xpub,
+        xprv,
+        xlmseed,
+        xlmpub
       };
     });
     const recoveredObj = {}
