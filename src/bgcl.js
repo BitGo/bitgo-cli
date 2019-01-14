@@ -2784,9 +2784,9 @@ BGCL.prototype.handleRecoverKeys = function() {
       const extendedKey = bitcoin.HDNode.fromSeedHex(seed);
       const xpub = extendedKey.neutered().toBase58();
       const xprv = self.args.verifyonly ? undefined : extendedKey.toBase58();
+      const masterXLMNode = stellarHd.fromSeed(seed);
       const xlmpub = masterXLMNode.getPublicKey(0);
       const xlmseed = masterXLMNode.getSecret(0);
-      const masterXLMNode = stellarHd.fromSeed(seed);
 
       if (!self.args.verifyonly && ((key.xpub && xpub !== key.xpub) || (key.xlmpub && xlmpub != key.xlmpub))) {
         throw new Error("xpubs or xlmpubs don't match for key " + key.index);
