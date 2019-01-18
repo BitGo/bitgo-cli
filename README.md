@@ -1,6 +1,9 @@
 BitGo Command-Line Interface (bitgo-cli)
 =========
 
+# Deprecation Notice
+This tool is for interacting with v1 BitGo bitcoin wallets. New v2 Bitcoin wallets or wallets for other coins should use our new [cli tool](https://github.com/BitGo/bitgo-cli-v2) instead.
+
 # Summary
 This package provides a NodeJS program (**bitgo**), which is a (mostly) complete command-line interface to [BitGo](https://www.bitgo.com) wallets. It also contains some useful client-side-only commands for key generation.
 
