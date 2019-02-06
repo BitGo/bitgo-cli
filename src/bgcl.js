@@ -572,6 +572,13 @@ BGCL.prototype.createArgumentParser = function() {
   splitKeys.addArgument(['-t', '--type'], { help: 'add type xlm to create xlm keys. default is xpub' });
   splitKeys.addArgument(['-a', '--startIndex'], { help: 'the first index number of this newly generated set of keys' });
 
+  const verifyPubSigs = subparsers.addParser('verifypubsigs', {
+    addHelp: true,
+    help: 'Given a file of public keys, verify they have been correctly signed with the signing key.'
+  });
+  verifyPubSigs.addArgument(['-p', '--pubs'], { help: 'the ".pubs.json" file generated from splitkeys' });
+  verifyPubSigs.addArgument(['-s', '--signingKey'], { help: 'the signing key that these pubs are signed with' });
+
   const verifySplitKeys = subparsers.addParser('verifysplitkeys', {
     addHelp: true,
     help: "Verify xpubs from an output file of 'splitkeys' (does not show xprvs)"
@@ -2521,6 +2528,25 @@ BGCL.prototype.genSplitKey = function(params, index) {
   return result;
 };
 
+BGCL.prototype.handleVerifyPubSigs = function() {
+  const args = this.args;
+  const signingKeyFile = JSON.parse(fs.readFileSync(args.signingKey));
+  const pubkeyFile = JSON.parse(fs.readFileSync(args.pubs));
+  const signingXpub = signingKeyFile[0].pub || signingKeyFile[0].xpub;
+  const signingAddress = bitcoin.HDNode.fromBase58(signingXpub).keyPair.getAddress();
+  pubkeyFile.forEach(function(entry, index) {
+    if (index % 100 === 0) {
+      console.log('verifying... at index ' + index);
+    }
+    const pub = entry.pub || entry.xpub || entry.xlmpub;
+    const sig = entry.signature || entry.xpubSig || entry.xlmpubSig || entry.xlmSignature;
+    if (!bitcoinMessage.verify(pub, signingAddress, sig)) {
+      throw new Error('Invalid sigcnature detected at index ' + index);
+    }
+  });
+  console.log('All signatures are valid');
+}
+
 /**
  * Generate a batch of random BIP32 root keys, from random 256-bit
  * seeds. The seeds are split using Shamir Secret Sharing Scheme
@@ -2550,9 +2576,25 @@ BGCL.prototype.handleSplitKeys = function() {
     });
   };
 
-  const getSigningKeyFromFile = function (filename) {
+  const getSigningKeyFromFile = function (filename, input) {
     const keyfile = JSON.parse(fs.readFileSync(filename));
-    return new Buffer(keyfile.privateKey);
+    try {
+      // if the file has a privateKey, use that. Otherwise its the other format, which we'll decrypt
+      return new Buffer(keyfile.privateKey);
+    } catch (err) {
+      const decryptedShares = [];
+      const n = keyfile[0].n;
+      for (let i = 0; i < n; i++) {
+        const pswd = input['password' + i];
+        if (pswd) {
+          const decryptedShare = sjcl.decrypt(pswd, keyfile[0].seedShares[i]);
+          decryptedShares.push(decryptedShare);
+        }
+      }
+      const seed = secrets.combine(decryptedShares);
+      const extendedKey = bitcoin.HDNode.fromSeedHex(seed);
+      return extendedKey.keyPair.getPrivateKeyBuffer();
+    }
   };
 
   return Q().then(function() {
@@ -2581,7 +2623,7 @@ BGCL.prototype.handleSplitKeys = function() {
     let signingKey;
     if (args.sign) {
       // get private key from file
-      signingKey = getSigningKeyFromFile(args.sign);
+      signingKey = getSigningKeyFromFile(args.sign, input);
     }
 
     const keys = _.range(0, input.nkeys).map(function(index) {
@@ -2635,7 +2677,8 @@ BGCL.prototype.handleSplitKeys = function() {
         pub: keys[i].xpub || keys[i].xlmpub
       };
       if (args.sign) {
-        entry.signature = keys[i].xpubSig || keys[i].xlmpubSig;
+        entry.signature = keys[i].xpubSig;
+        entry.xlmSignature = keys[i].xlmpubSig;
       }
       entry.path = index;
       pubsFile.push(entry);
@@ -3568,6 +3611,8 @@ BGCL.prototype.runCommandHandler = function(cmd) {
       return this.handleEncryptKey();
     case 'splitkeys':
       return this.handleSplitKeys();
+    case 'verifypubsigs':
+      return this.handleVerifyPubSigs();
     case 'verifysplitkeys':
       this.args.verifyonly = true;
       return this.handleRecoverKeys();
