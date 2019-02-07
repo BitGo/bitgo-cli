@@ -2660,7 +2660,9 @@ BGCL.prototype.handleSplitKeys = function() {
       return keyObj;
     });
 
-    let filename = input.prefix + '.json';
+    const endIndex = parseInt(args.startIndex) + parseInt(input.nkeys) - 1;
+    const filePrefix = input.prefix + args.startIndex + '-' + endIndex;
+    let filename = filePrefix + '.json';
     if (args.type === 'xlm') {
       filename = 'xlm.' + filename;
     }
@@ -2683,7 +2685,7 @@ BGCL.prototype.handleSplitKeys = function() {
       entry.path = index;
       pubsFile.push(entry);
     }
-    let pubsFilename = input.prefix + '.pubs.json';
+    let pubsFilename = filePrefix + '.pubs.json';
     if (args.type === 'xlm') {
       pubsFilename = 'xlm.' + pubsFilename;
     }
@@ -2785,24 +2787,32 @@ BGCL.prototype.handleRecoverKeys = function() {
     // Grab the list of keys from the file
     const json = fs.readFileSync(input.file);
     const keys = JSON.parse(json);
+    let indices;
+    if (input.keys !== 'all') {
+      // Determine and validate the indices of the keys to recover
+      indices = input.keys.split(',')
+        .map(function (x) {
+          return parseInt(x, 10);
+        })
+        .filter(function (x) {
+          return !isNaN(x);
+        });
+      indices = _.uniq(indices).sort(function (a, b) {
+        return a - b;
+      });
+      if (!indices.length) {
+        throw new Error('no indices');
+      }
 
-    // Determine and validate the indices of the keys to recover
-    let indices = input.keys.split(',')
-      .map(function(x) { return parseInt(x, 10); })
-      .filter(function(x) { return !isNaN(x); });
-    indices = _.uniq(indices).sort(function(a, b) { return a - b; });
-    if (!indices.length) {
-      throw new Error('no indices');
+      // Get the keys to recover
+      keysToRecover = keys.filter(function (key, index) {
+        // return indices.indexOf(index) !== -1;
+        return indices.indexOf(key.index) !== -1;
+      });
+    } else {
+      keysToRecover = keys;
+      indices = 'all';
     }
-    if (indices[0] < 0 || indices[indices.length - 1] >= keys.length) {
-      throw new Error('index out of range: ' + keys.length + ' keys in file');
-    }
-
-    // Get the keys to recover
-    keysToRecover = keys.filter(function(key, index) {
-      // return indices.indexOf(index) !== -1;
-      return indices.indexOf(key.index) !== -1;
-    });
 
     console.log('Processing ' + keysToRecover.length + ' keys: ' + indices);
 
