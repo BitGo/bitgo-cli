@@ -8,7 +8,9 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "./node_modules/.bin/eslint --ext .js ."
+    "lint": "./node_modules/.bin/eslint --ext .js .",
+    "snyk-protect": "snyk protect",
+    "prepare": "npm run snyk-protect"
   },
   "repository": {
     "type": "git",
@@ -43,11 +45,13 @@
     "sjcl": "1.0.1",
     "superagent": "3.5.2",
     "superagent-as-promised": "3.1.1",
-    "underscore.string": "2.4.0"
+    "underscore.string": "2.4.0",
+    "snyk": "^1.316.1"
   },
   "devDependencies": {
     "eslint": "^4.13.1",
     "mocha": "^3.4.2"
   },
-  "preferGlobal": true
+  "preferGlobal": true,
+  "snyk": true
 }
